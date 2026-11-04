@@ -47,6 +47,13 @@ class AccountStore:
             );
             CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
+            CREATE TABLE IF NOT EXISTS game_login_tickets (
+                ticket_hash BLOB PRIMARY KEY,
+                account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                expires_at INTEGER NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_game_login_expiry ON game_login_tickets(expires_at);
             """)
 
     @staticmethod
@@ -115,6 +122,46 @@ class AccountStore:
             if not row or row["disabled"]:
                 return None
             return {"id": row["id"], "username": row["username"]}
+
+    def issue_game_login_ticket(self, bearer_token):
+        """Authenticated HTTPS/API session -> short-lived, one-use game ticket.
+
+        Never put a password or long-lived session token into the legacy TCP
+        game protocol. HTTPS must protect the bearer endpoint.
+        """
+        account = self.resolve(bearer_token)
+        if account is None:
+            raise AuthError("Session invalid or expired")
+        ticket = secrets.token_urlsafe(48)
+        now = int(time.time())
+        with self.lock, self.db:
+            self.db.execute("DELETE FROM game_login_tickets WHERE expires_at<=?", (now,))
+            # Limit outstanding tickets per account, including previously unused codes.
+            self.db.execute("DELETE FROM game_login_tickets WHERE account_id=?", (account["id"],))
+            self.db.execute(
+                "INSERT INTO game_login_tickets(ticket_hash,account_id,expires_at,created_at) VALUES(?,?,?,?)",
+                (self.digest(ticket), account["id"], now + 45, now))
+        return {"ticket": ticket, "expires_at": now + 45}
+
+    def consume_game_login_ticket(self, ticket):
+        """Atomic one-time redemption. Returns verified identity or None."""
+        if not isinstance(ticket, str) or not 32 <= len(ticket) <= 256 or not ticket.isascii():
+            return None
+        now = int(time.time())
+        with self.lock, self.db:
+            row = self.db.execute(
+                """SELECT t.account_id,a.username FROM game_login_tickets t
+                   JOIN accounts a ON a.id=t.account_id
+                   WHERE t.ticket_hash=? AND t.expires_at>? AND a.disabled=0""",
+                (self.digest(ticket), now)).fetchone()
+            if row is None:
+                return None
+            deleted = self.db.execute(
+                "DELETE FROM game_login_tickets WHERE ticket_hash=?",
+                (self.digest(ticket),))
+            if deleted.rowcount != 1:
+                return None
+            return {"id": row["account_id"], "username": row["username"]}
 
     def revoke(self, token):
         if not isinstance(token, str) or not token.isascii() or len(token) > 256:
