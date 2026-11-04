@@ -32,3 +32,11 @@ jobs:
       - run: python -m pip install --upgrade pip pip-audit
       - name: Audit installer dependency
         run: python -m pip_audit -r requirements-installer.txt
+  docker-development:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate development compose
+        run: docker compose config --quiet
+      - name: Build server development image
+        run: docker build --pull -t cdr-dev:test .
