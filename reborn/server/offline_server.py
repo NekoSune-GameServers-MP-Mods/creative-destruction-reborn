@@ -1756,6 +1756,8 @@ def client_loop(conn, on_connect):
                     log("handler %s failed\n%s" % (name, traceback.format_exc()))
             elif name not in QUIET_MESSAGES:
                 log("%s (%d,%d) %s" % (name or "?", cmd, sub, short(data, 600)), "unhandled.log")
+            if not conn.alive:
+                break
     except (ConnectionError, OSError, ValueError, struct.error) as e:
         log("[%s] connection error %s" % (conn.kind, e))
     except Exception:
