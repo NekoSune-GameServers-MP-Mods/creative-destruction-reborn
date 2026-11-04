@@ -24,7 +24,7 @@ import traceback
 import bots
 import loot
 from nexproto import Protocol
-from server_config import listener_host, connection_limit
+from server_config import listener_host, connection_limit, advertised_host
 from i18n import tr
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -36,6 +36,7 @@ os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
 
 HOST = listener_host()
+ADVERTISE_HOST = advertised_host()
 CLIENT_SLOTS = threading.BoundedSemaphore(connection_limit())
 HTTP_PORT, LOGIN_PORT, GATE_PORT = 8000, 4000, 4001
 ZONE_ID = 1
@@ -151,7 +152,7 @@ def send_seed(conn):
 @handler("C_LOGIN_AUTH")
 def on_login_auth(conn, msg):
     has_role = bool(SAVE.get("name"))
-    zone = {"zone_id": ZONE_ID, "gate_hostid": 1, "gate_ip": HOST, "gate_port": GATE_PORT,
+    zone = {"zone_id": ZONE_ID, "gate_hostid": 1, "gate_ip": ADVERTISE_HOST, "gate_port": GATE_PORT,
             "role_uid": SAVE["uid"] if has_role else 0}
     if has_role:
         zone["role_info"] = {"name": SAVE["name"], "level": 1}
@@ -1744,7 +1745,7 @@ def client_loop(conn, on_connect):
         log("[%s] disconnect %s" % (conn.kind, conn.addr))
 
 
-LOGINLIST = "1 %s %d\n" % (HOST, LOGIN_PORT)
+LOGINLIST = "1 %s %d\n" % (ADVERTISE_HOST, LOGIN_PORT)
 ZONELIST = "%d Offline pc 202001010000 1\n" % ZONE_ID
 HTTP_FILES = {"loginlist_rel_pc_na.txt": LOGINLIST, "loginlist.txt": LOGINLIST,
               "client_zonelist_rel_pc_na.txt": ZONELIST, "client_zonelist.txt": ZONELIST}
