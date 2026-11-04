@@ -1,0 +1,29 @@
+# Local Docker development ONLY: localhost-published ports prevent public exposure.
+services:
+  creative-destruction-dev:
+    build: .
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      CDR_LANGUAGE: ${CDR_LANGUAGE:-en}
+      CDR_BIND_HOST: 0.0.0.0
+      CDR_ADVERTISE_HOST: 127.0.0.1
+      CDR_ALLOW_REMOTE: "1" # Container interface only; host ports below bind localhost.
+      CDR_MAX_CONNECTIONS: "32"
+    ports:
+      - "127.0.0.1:8000:8000/tcp"
+      - "127.0.0.1:4000:4000/tcp"
+      - "127.0.0.1:4001:4001/tcp"
+      - "127.0.0.1:4002:4002/tcp"
+    volumes:
+      - ./runtime/logs:/app/reborn/server/logs
+      - ./runtime/save:/app/reborn/server/save
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 512m
