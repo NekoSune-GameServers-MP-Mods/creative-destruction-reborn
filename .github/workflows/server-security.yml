@@ -1,7 +1,7 @@
 name: Server tests and security
 on:
   push:
-    branches: [main]
+    branches: [main, server, account, staff, cluster-api, cluster-agent]
   pull_request:
 permissions:
   contents: read
