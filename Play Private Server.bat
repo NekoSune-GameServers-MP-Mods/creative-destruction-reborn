@@ -1,15 +1,40 @@
 @echo off
-rem Start the patched Creative Destruction client WITHOUT launching a second local server.
+setlocal
+title Creative Destruction Reborn - Online Client
 cd /d "%~dp0"
+
 if not exist "%~dp0client.exe" (
-    echo Missing client.exe. Copy this launcher into your legally-owned game directory.
+    echo ERROR: client.exe was not found in this folder.
+    echo Install the Reborn client files next to your existing Creative Destruction client.exe.
+    pause
+    exit /b 1
+)
+if not exist "%~dp0reborn\client-config.json" (
+    echo ERROR: reborn\client-config.json is missing.
     pause
     exit /b 1
 )
 if not exist "%~dp0Documents\nonpatch_user_data.dat" (
-    echo Missing endpoint config. Run the mod installer and then Patch Server - Set Endpoint.bat.
+    echo ERROR: Reborn client modification is not installed.
+    echo First run the existing Reborn installer. Your original files are backed up.
     pause
     exit /b 1
 )
-echo Starting game client using the patched endpoint. VPN must already be connected.
-start "" "%~dp0client.exe"
+echo.
+echo Connecting to the configured Reborn server...
+echo Account login is required. This launcher starts the local secure bridge and game.
+echo Do NOT launch the old offline server at the same time.
+echo.
+where py >nul 2>&1
+if %errorlevel%==0 (
+    py -3 "%~dp0reborn\tools\steam_launcher.py"
+) else (
+    python "%~dp0reborn\tools\steam_launcher.py"
+)
+if errorlevel 1 (
+    echo.
+    echo Launch failed. Review the message above.
+    pause
+    exit /b 1
+)
+exit /b 0
