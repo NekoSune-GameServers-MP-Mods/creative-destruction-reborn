@@ -1,0 +1,62 @@
+# GAME NODE VPS ONLY. No account database or registration service here.
+# Development simulator: player logins from remote addresses remain blocked.
+services:
+  volume-init:
+    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["chown -R 10001:10001 /app/reborn/server/logs /app/reborn/server/save"]
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - cdr_logs:/app/reborn/server/logs
+      - cdr_save:/app/reborn/server/save
+  game-server:
+    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      CDR_LANGUAGE: ${CDR_LANGUAGE:-en}
+      CDR_BIND_HOST: 0.0.0.0
+      CDR_ADVERTISE_HOST: ${CDR_NODE_BIND_IP:?Set a protected per-node IP}
+      CDR_ALLOW_REMOTE: "1"
+      CDR_MAX_CONNECTIONS: "32"
+    ports:
+      - "${CDR_NODE_BIND_IP:?Protected node IPv4}:8000:8000/tcp"
+      - "${CDR_NODE_BIND_IP:?Protected node IPv4}:4000:4000/tcp"
+      - "${CDR_NODE_BIND_IP:?Protected node IPv4}:4001:4001/tcp"
+      - "${CDR_NODE_BIND_IP:?Protected node IPv4}:4002:4002/tcp"
+    volumes:
+      - cdr_logs:/app/reborn/server/logs
+      - cdr_save:/app/reborn/server/save
+    tmpfs: ["/tmp:size=16m,noexec,nosuid,nodev"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 512m
+  cluster-agent:
+    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    depends_on:
+      - game-server
+    command: ["python", "cluster_agent.py"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      CDR_CLUSTER_URL: ${CDR_CLUSTER_URL:?Set HTTPS control-plane URL}
+      CDR_NODE_ID: ${CDR_NODE_ID:?Set registered node ID}
+      CDR_NODE_KEY: ${CDR_NODE_KEY:?Set generated per-node credential}
+      CDR_GAME_SERVICE: game-server
+    tmpfs: ["/tmp:size=16m,noexec,nosuid,nodev"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+volumes:
+  cdr_logs:
+  cdr_save:

@@ -1,0 +1,62 @@
+# CENTRAL VPS ONLY. Private control API + single shared account database.
+# Bind host ports to loopback; remote node access requires an authenticated TLS
+# reverse proxy or tunnel. Never publicly expose the raw HTTP auth API.
+services:
+  volume-init:
+    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["chown -R 10001:10001 /app/reborn/server/save"]
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - cdr_save:/app/reborn/server/save
+  account-api:
+    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+    command: ["python", "account_api.py"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      CDR_AUTH_BIND: 0.0.0.0
+      CDR_AUTH_ALLOW_CONTAINER: "1"
+      CDR_AUTH_PORT: "8090"
+      CDR_ACCOUNT_DB: /app/reborn/server/save/accounts.sqlite3
+      CDR_REGISTRATION_KEY: ${CDR_REGISTRATION_KEY:?Set a strong registration key}
+    ports:
+      - "127.0.0.1:${CDR_ACCOUNT_HOST_PORT:-8091}:8090/tcp"
+    volumes:
+      - cdr_save:/app/reborn/server/save
+    tmpfs: ["/tmp:size=16m,noexec,nosuid,nodev"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+  cluster-api:
+    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+    command: ["python", "cluster_api.py"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      CDR_CLUSTER_BIND: 0.0.0.0
+      CDR_CLUSTER_ALLOW_CONTAINER: "1"
+      CDR_CLUSTER_PORT: "8092"
+      CDR_CLUSTER_ADMIN_TOKEN: ${CDR_CLUSTER_ADMIN_TOKEN:?Set independent admin secret}
+      CDR_CLUSTER_DB: /app/reborn/server/save/cluster.sqlite3
+    ports:
+      - "127.0.0.1:${CDR_CLUSTER_HOST_PORT:-8092}:8092/tcp"
+    volumes:
+      - cdr_save:/app/reborn/server/save
+    tmpfs: ["/tmp:size=16m,noexec,nosuid,nodev"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+volumes:
+  cdr_save:

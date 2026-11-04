@@ -55,7 +55,24 @@ jobs:
         run: |
           docker compose -f compose.yaml up --build -d
           docker compose -f compose.yaml ps
-          docker compose -f compose.yaml exec -T creative-destruction-dev python -c "from pathlib import Path; p=Path('/app/reborn/server/logs/server.log'); assert p.is_file(), 'no server log'"
+          for i in {1..20}; do
+            if docker compose -f compose.yaml exec -T creative-destruction-dev python -c "from pathlib import Path; assert Path('/app/reborn/server/logs/server.log').is_file()" 2>/dev/null; then
+              break
+            fi
+            if [ "$i" = 20 ]; then docker compose -f compose.yaml logs; exit 1; fi
+            sleep 1
+          done
           docker compose -f compose.yaml down
+      - name: Validate central and node Compose files
+        env:
+          CDR_NODE_BIND_IP: 100.88.10.11
+          CDR_NODE_ID: eu-one
+          CDR_NODE_KEY: 1234567890abcdefghij1234567890abcdefghi
+          CDR_CLUSTER_URL: https://cluster.example.com
+          CDR_CLUSTER_ADMIN_TOKEN: 1234567890abcdefghij1234567890abcdefghi
+          CDR_REGISTRATION_KEY: 1234567890abcdefghij1234567890abcdefghi
+        run: |
+          docker compose -f compose.cluster-control.yaml config --quiet
+          docker compose -f compose.cluster-node.yaml config --quiet
       - name: Reject unsafe VPS settings
         run: python3 -m unittest discover -s tests -p test_vps_config.py -v
