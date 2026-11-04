@@ -1781,9 +1781,11 @@ ZONELIST = "%d Offline pc 202001010000 1\n" % ZONE_ID
 HTTP_FILES = {
     "loginlist_rel_pc_na.txt": LOGINLIST,
     "loginlist_rel_steam_na.txt": LOGINLIST,
+    "loginlist_rel_na.txt": LOGINLIST,
     "loginlist.txt": LOGINLIST,
     "client_zonelist_rel_pc_na.txt": ZONELIST,
     "client_zonelist_rel_steam_na.txt": ZONELIST,
+    "client_zonelist_rel_na.txt": ZONELIST,
     "client_zonelist.txt": ZONELIST,
 }
 
