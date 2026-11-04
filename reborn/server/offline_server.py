@@ -24,6 +24,8 @@ import traceback
 import bots
 import loot
 from nexproto import Protocol
+from server_config import listener_host, connection_limit, advertised_host
+from i18n import tr
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -33,7 +35,9 @@ PROTO_DIR = os.path.join(ROOT, "decomp", "scripts_py", "proto")
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
 
-HOST = "127.0.0.1"
+HOST = listener_host()
+ADVERTISE_HOST = advertised_host()
+CLIENT_SLOTS = threading.BoundedSemaphore(connection_limit())
 HTTP_PORT, LOGIN_PORT, GATE_PORT = 8000, 4000, 4001
 ZONE_ID = 1
 
@@ -116,9 +120,14 @@ class Connection:
             if not chunk:
                 return
             self.buf += chunk
+            # Header is uint16; bound buffering and refuse impossible frames.
+            if len(self.buf) > 131070:
+                raise ValueError("Receive buffer limit exceeded")
             while len(self.buf) >= 2:
                 total = struct.unpack_from("<H", self.buf)[0]
-                if total < 2 or len(self.buf) < total:
+                if total < 5:
+                    raise ValueError("Invalid network frame: missing command/subcommand")
+                if len(self.buf) < total:
                     break
                 body, self.buf = self.buf[2:total], self.buf[total:]
                 yield body
@@ -142,8 +151,20 @@ def send_seed(conn):
 # ------------------------------------------------------------------ login server
 @handler("C_LOGIN_AUTH")
 def on_login_auth(conn, msg):
+    # The original offline simulation has only one global player state and static
+    # tickets. Remote clients MUST NOT be granted a fake authenticated identity.
+    if HOST != "127.0.0.1":
+        conn.send("S_LOGIN_AUTH", {
+            "err_code": 1,
+            "err_msg": "Remote multiplayer logins disabled until per-player session isolation is implemented",
+            "warn_msg": "", "unisdk_login_json": "", "auth_hostid": 0,
+            "auth_sn": "", "zone_list": [], "origin_account": "",
+            "aid": 0, "sdk_username": "",
+        })
+        conn.alive = False
+        return
     has_role = bool(SAVE.get("name"))
-    zone = {"zone_id": ZONE_ID, "gate_hostid": 1, "gate_ip": HOST, "gate_port": GATE_PORT,
+    zone = {"zone_id": ZONE_ID, "gate_hostid": 1, "gate_ip": ADVERTISE_HOST, "gate_port": GATE_PORT,
             "role_uid": SAVE["uid"] if has_role else 0}
     if has_role:
         zone["role_info"] = {"name": SAVE["name"], "level": 1}
@@ -159,6 +180,10 @@ GATE = {"conn": None}  # the lobby connection stays open during a match: the mod
 
 
 def gate_on_connect(conn):
+    if HOST != "127.0.0.1":
+        conn.alive = False
+        conn.sock.close()
+        return
     GATE["conn"] = conn
     send_seed(conn)
     now = int(time.time())
@@ -421,11 +446,15 @@ def on_start_match(conn, msg):
     team_mode = (queues[0].get("team_modes") or [1])[0]
     FIGHT_STATE.update({"game_mode": game_mode, "team_mode": team_mode})
     conn.send("S_GAME_MATCH_SUCCESS", {"game_mode": game_mode, "team_mode": team_mode})
-    conn.send("S_GAME_SWITCH_TO_BATTLE", {"ip": HOST, "port": BATTLE_KCP_PORT, "login_key": "offline_battle",
+    conn.send("S_GAME_SWITCH_TO_BATTLE", {"ip": ADVERTISE_HOST, "port": BATTLE_KCP_PORT, "login_key": "offline_battle",
                                           "tcp_port": BATTLE_PORT})
 
 
 def battle_on_connect(conn):
+    if HOST != "127.0.0.1":
+        conn.alive = False
+        conn.sock.close()
+        return
     conn.send("S_SYS_BATTLE_ENCRYPT_SEED", {"need_encrypt": 0, "in_seed": 0, "out_seed": 0, "need_handshake": 0})
 
 
@@ -1687,11 +1716,20 @@ def serve_tcp(port, kind, on_connect=None):
     else:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind((HOST, port))
-    s.listen(8)
-    log("%s listening on %d" % (kind, port), console=True)
+    s.listen(32)
+    log(tr("listen", kind=kind, port=port), console=True)
     while True:
         c, a = s.accept()
-        threading.Thread(target=client_loop, args=(Connection(c, a, kind), on_connect), daemon=True).start()
+        if not CLIENT_SLOTS.acquire(blocking=False):
+            log(tr("full"))
+            c.close()
+            continue
+        try:
+            threading.Thread(target=client_loop, args=(Connection(c, a, kind), on_connect), daemon=True).start()
+        except Exception:
+            CLIENT_SLOTS.release()
+            c.close()
+            raise
 
 
 # High-frequency client messages: not logged at all (they arrive ~20 times per second).
@@ -1704,6 +1742,8 @@ def client_loop(conn, on_connect):
     try:
         if on_connect:
             on_connect(conn)
+        if not conn.alive:
+            return
         for body in conn.messages():
             name, cmd, sub, data = PROTO.decode(body, "C")
             if name not in QUIET_MESSAGES:
@@ -1716,13 +1756,20 @@ def client_loop(conn, on_connect):
                     log("handler %s failed\n%s" % (name, traceback.format_exc()))
             elif name not in QUIET_MESSAGES:
                 log("%s (%d,%d) %s" % (name or "?", cmd, sub, short(data, 600)), "unhandled.log")
-    except (ConnectionError, OSError) as e:
-        log("[%s] socket error %s" % (conn.kind, e))
-    conn.alive = False
-    log("[%s] disconnect %s" % (conn.kind, conn.addr))
+            if not conn.alive:
+                break
+    except (ConnectionError, OSError, ValueError, struct.error) as e:
+        log("[%s] connection error %s" % (conn.kind, e))
+    except Exception:
+        log("[%s] unexpected failure\n%s" % (conn.kind, traceback.format_exc()))
+    finally:
+        conn.alive = False
+        conn.sock.close()
+        CLIENT_SLOTS.release()
+        log("[%s] disconnect %s" % (conn.kind, conn.addr))
 
 
-LOGINLIST = "1 %s %d\n" % (HOST, LOGIN_PORT)
+LOGINLIST = "1 %s %d\n" % (ADVERTISE_HOST, LOGIN_PORT)
 ZONELIST = "%d Offline pc 202001010000 1\n" % ZONE_ID
 HTTP_FILES = {"loginlist_rel_pc_na.txt": LOGINLIST, "loginlist.txt": LOGINLIST,
               "client_zonelist_rel_pc_na.txt": ZONELIST, "client_zonelist.txt": ZONELIST}
@@ -1748,12 +1795,14 @@ class HttpHandler(http.server.BaseHTTPRequestHandler):
 
 
 def main():
-    log("Creative Destruction Reborn - offline server. Leave this window open while playing.", console=True)
+    log(tr("start"), console=True)
+    if HOST not in ("127.0.0.1", "::1"):
+        log(tr("remote"), console=True)
     log("loaded %d protocol messages" % len(PROTO.by_name), console=True)
     threading.Thread(target=serve_tcp, args=(LOGIN_PORT, "login", send_seed), daemon=True).start()
     threading.Thread(target=serve_tcp, args=(GATE_PORT, "gate", gate_on_connect), daemon=True).start()
     threading.Thread(target=serve_tcp, args=(BATTLE_PORT, "battle", battle_on_connect), daemon=True).start()
-    log("HTTP listening on %d" % HTTP_PORT, console=True)
+    log(tr("http", port=HTTP_PORT), console=True)
     http.server.ThreadingHTTPServer((HOST, HTTP_PORT), HttpHandler).serve_forever()
 
 

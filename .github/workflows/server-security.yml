@@ -1,0 +1,50 @@
+name: Server tests and security
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile Python sources
+        run: python -m compileall -q reborn/server reborn/tools tests
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Validate data files
+        run: python -c "import json,pathlib; [json.loads(p.read_text(encoding='utf-8')) for p in pathlib.Path('reborn/server/data').glob('*.json')]"
+  dependency-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --upgrade pip pip-audit
+      - name: Audit installer dependency
+        run: python -m pip_audit -r requirements-installer.txt
+  docker-development:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate development compose
+        run: docker compose config --quiet
+      - name: Build server development image
+        run: docker build --pull -t cdr-dev:test .
+      - name: Validate VPS Compose with safe example values
+        env:
+          CDR_VPN_IP: 100.101.22.33
+          CDR_STAFF_TOKEN: A12b34C56d78E90fGhIjKlMnOpQrStUvWxYz
+          CDR_REGISTRATION_KEY: 1Qaz2Wsx3Edc4Rfv5Tgb6Yhn7Ujm8Ik9
+        run: docker compose -f compose.vps.yaml config --quiet
+      - name: Reject unsafe VPS settings
+        run: python3 -m unittest discover -s tests -p test_vps_config.py -v

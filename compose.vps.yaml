@@ -1,0 +1,72 @@
+# DEVELOPMENT VPS via Tailscale/WireGuard private IPv4 only — NOT public multiplayer.
+# Set CDR_VPN_IP and CDR_STAFF_TOKEN in .env, then:
+# docker compose -f compose.vps.yaml up --build -d
+services:
+  game-server:
+    build: .
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      CDR_LANGUAGE: ${CDR_LANGUAGE:-en}
+      CDR_BIND_HOST: 0.0.0.0
+      CDR_ADVERTISE_HOST: ${CDR_VPN_IP:?Set private Tailscale or WireGuard IPv4 in .env}
+      CDR_ALLOW_REMOTE: "1"
+      CDR_MAX_CONNECTIONS: "32"
+    ports:
+      - "${CDR_VPN_IP:?Set VPN IPv4}:8000:8000/tcp"
+      - "${CDR_VPN_IP:?Set VPN IPv4}:4000:4000/tcp"
+      - "${CDR_VPN_IP:?Set VPN IPv4}:4001:4001/tcp"
+      - "${CDR_VPN_IP:?Set VPN IPv4}:4002:4002/tcp"
+    volumes:
+      - cdr_logs:/app/reborn/server/logs
+      - cdr_save:/app/reborn/server/save
+    tmpfs: ["/tmp:size=16m,noexec,nosuid,nodev"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 512m
+  account-api:
+    build: .
+    command: ["python", "account_api.py"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      CDR_AUTH_BIND: 0.0.0.0
+      CDR_AUTH_ALLOW_CONTAINER: "1"
+      CDR_AUTH_PORT: "8090"
+      CDR_ACCOUNT_DB: /app/reborn/server/save/accounts.sqlite3
+      CDR_REGISTRATION_KEY: ${CDR_REGISTRATION_KEY:?Set a strong registration secret in .env}
+    ports:
+      - "127.0.0.1:8090:8090/tcp"
+    volumes:
+      - cdr_save:/app/reborn/server/save
+    tmpfs: ["/tmp:size=16m,noexec,nosuid,nodev"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    pids_limit: 64
+    mem_limit: 256m
+  staff:
+    build: .
+    command: ["python", "staff_dashboard.py"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      CDR_STAFF_BIND: 0.0.0.0
+      CDR_STAFF_PORT: "8088"
+      CDR_STAFF_TOKEN: ${CDR_STAFF_TOKEN:?Set a random 32+ character token in .env}
+    ports:
+      - "127.0.0.1:8088:8088/tcp"
+    volumes:
+      - cdr_logs:/app/reborn/server/logs:ro
+      - cdr_save:/app/reborn/server/save:ro
+    tmpfs: ["/tmp:size=16m,noexec,nosuid,nodev"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    pids_limit: 64
+    mem_limit: 256m
+volumes:
+  cdr_logs:
+  cdr_save:
