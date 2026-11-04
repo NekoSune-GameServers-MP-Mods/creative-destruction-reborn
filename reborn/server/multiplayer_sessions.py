@@ -32,10 +32,16 @@ class MultiplayerRegistry:
         self.rooms = {}          # room ID -> {members, match_state}
 
     def open_authenticated(self, bearer_token):
-        """Only call from a trusted authenticated/TLS layer; never raw C_LOGIN_AUTH."""
+        """Resolve a bearer token only inside a trusted authenticated service."""
         account = self.accounts.resolve(bearer_token)
         if account is None:
             raise SessionRejected("Invalid or expired account session")
+        return self.open_verified_identity(account)
+
+    def open_verified_identity(self, account):
+        """Accept only the account store's verified account row (server internal)."""
+        if not isinstance(account, dict) or type(account.get("id")) is not int or not account.get("username"):
+            raise SessionRejected("Verified account identity required")
         account_id = account["id"]
         with self.lock:
             if account_id in self.account_sessions:
