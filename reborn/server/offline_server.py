@@ -26,6 +26,7 @@ import loot
 from nexproto import Protocol
 from server_config import listener_host, connection_limit, advertised_host
 from i18n import tr
+from remote_lab import RemoteLab, wire_str
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -38,6 +39,8 @@ os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
 HOST = listener_host()
 ADVERTISE_HOST = advertised_host()
 CLIENT_SLOTS = threading.BoundedSemaphore(connection_limit())
+REMOTE_LAB = RemoteLab.from_environment()
+
 HTTP_PORT, LOGIN_PORT, GATE_PORT = 8000, 4000, 4001
 ZONE_ID = 1
 
@@ -64,6 +67,15 @@ def short(v, n=300):
     s = repr(v)
     return s if len(s) <= n else s[:n] + "..."
 
+
+# VARSTR fields can carry tickets/passwords. Never write them to server.log.
+SECRET_WIRE_FIELDS = frozenset(("auth_sn", "login_key", "key", "sauth_json",
+                               "ip_info", "device_id", "udid", "session", "token"))
+
+def redact_wire_data(data):
+    if not isinstance(data, dict):
+        return data
+    return {k: "[REDACTED]" if k in SECRET_WIRE_FIELDS else v for k, v in data.items()}
 
 # ------------------------------------------------------------------ save data
 # Currencies are INT32 on the wire. 999 999 999 leaves headroom so the client never
@@ -112,7 +124,7 @@ class Connection:
 
     def send(self, name, data=None):
         self.sock.sendall(PROTO.encode(name, data or {}))
-        log("[%s] -> %s %s" % (self.kind, name, short(data or {})))
+        log("[%s] -> %s %s" % (self.kind, name, short(redact_wire_data(data or {}))))
 
     def messages(self):
         while True:
@@ -151,18 +163,25 @@ def send_seed(conn):
 # ------------------------------------------------------------------ login server
 @handler("C_LOGIN_AUTH")
 def on_login_auth(conn, msg):
-    # The original offline simulation has only one global player state and static
-    # tickets. Remote clients MUST NOT be granted a fake authenticated identity.
+    # Legacy PC client sends sauth_json={} and offline_player. This is NOT a
+    # real identity. The only remote path permitted here is an opt-in one-IP,
+    # one-player lab with handoff tickets and a separate provider firewall rule.
+    auth_sn = "offline_sn"
     if HOST != "127.0.0.1":
-        conn.send("S_LOGIN_AUTH", {
-            "err_code": 1,
-            "err_msg": "Remote multiplayer logins disabled until per-player session isolation is implemented",
-            "warn_msg": "", "unisdk_login_json": "", "auth_hostid": 0,
-            "auth_sn": "", "zone_list": [], "origin_account": "",
-            "aid": 0, "sdk_username": "",
-        })
-        conn.alive = False
-        return
+        auth_sn = REMOTE_LAB.issue_login(
+            conn.addr[0], wire_str(msg.get("client_version")),
+            wire_str(msg.get("sdkuid")), wire_str(msg.get("sauth_json")))
+        if auth_sn is None:
+            conn.send("S_LOGIN_AUTH", {
+                "err_code": 1,
+                "err_msg": "Remote login disabled or untrusted test client",
+                "warn_msg": "", "unisdk_login_json": "", "auth_hostid": 0,
+                "auth_sn": "", "zone_list": [], "origin_account": "",
+                "aid": 0, "sdk_username": "",
+            })
+            conn.alive = False
+            return
+        log("[login] guarded single-player test session issued for allowlisted address")
     has_role = bool(SAVE.get("name"))
     zone = {"zone_id": ZONE_ID, "gate_hostid": 1, "gate_ip": ADVERTISE_HOST, "gate_port": GATE_PORT,
             "role_uid": SAVE["uid"] if has_role else 0}
@@ -170,7 +189,7 @@ def on_login_auth(conn, msg):
         zone["role_info"] = {"name": SAVE["name"], "level": 1}
     conn.send("S_LOGIN_AUTH", {
         "err_code": 0, "err_msg": "", "warn_msg": "", "unisdk_login_json": "",
-        "auth_hostid": 1, "auth_sn": "offline_sn", "zone_list": [zone],
+        "auth_hostid": 1, "auth_sn": auth_sn, "zone_list": [zone],
         "origin_account": "offline", "aid": SAVE["aid"], "sdk_username": "offline",
     })
 
@@ -181,10 +200,13 @@ GATE = {"conn": None}  # the lobby connection stays open during a match: the mod
 
 def gate_on_connect(conn):
     if HOST != "127.0.0.1":
-        conn.alive = False
-        conn.sock.close()
-        return
-    GATE["conn"] = conn
+        if not REMOTE_LAB.pending(conn.addr[0]):
+            conn.alive = False
+            return
+        # Do not attach the shared global gate until C_LOGIN_ENTER/CREATE
+        # proves possession of the one-time login auth_sn ticket.
+    else:
+        GATE["conn"] = conn
     send_seed(conn)
     now = int(time.time())
     conn.send("S_LOGIN_GATE_PREPARE", {"is_test_branch": 0, "timestamp": now, "timezone": 0})
@@ -204,6 +226,11 @@ def enter_game(conn):
 
 @handler("C_LOGIN_CREATE")
 def on_login_create(conn, msg):
+    if HOST != "127.0.0.1" and not REMOTE_LAB.enter_gateway(conn, wire_str(msg.get("auth_sn"))):
+        conn.alive = False
+        return
+    if HOST != "127.0.0.1":
+        GATE["conn"] = conn
     name = msg.get("name", b"").decode("utf-8", "replace") or "Joueur"
     SAVE["name"] = name
     SAVE["gender"] = msg.get("gender", 1) or 1
@@ -214,6 +241,11 @@ def on_login_create(conn, msg):
 
 @handler("C_LOGIN_ENTER")
 def on_login_enter(conn, msg):
+    if HOST != "127.0.0.1" and not REMOTE_LAB.enter_gateway(conn, wire_str(msg.get("auth_sn"))):
+        conn.alive = False
+        return
+    if HOST != "127.0.0.1":
+        GATE["conn"] = conn
     enter_game(conn)
 
 
@@ -446,14 +478,17 @@ def on_start_match(conn, msg):
     team_mode = (queues[0].get("team_modes") or [1])[0]
     FIGHT_STATE.update({"game_mode": game_mode, "team_mode": team_mode})
     conn.send("S_GAME_MATCH_SUCCESS", {"game_mode": game_mode, "team_mode": team_mode})
-    conn.send("S_GAME_SWITCH_TO_BATTLE", {"ip": ADVERTISE_HOST, "port": BATTLE_KCP_PORT, "login_key": "offline_battle",
+    ticket = "offline_battle" if HOST == "127.0.0.1" else REMOTE_LAB.issue_battle(conn)
+    if ticket is None:
+        conn.alive = False
+        return
+    conn.send("S_GAME_SWITCH_TO_BATTLE", {"ip": ADVERTISE_HOST, "port": BATTLE_KCP_PORT, "login_key": ticket,
                                           "tcp_port": BATTLE_PORT})
 
 
 def battle_on_connect(conn):
-    if HOST != "127.0.0.1":
+    if HOST != "127.0.0.1" and not REMOTE_LAB.allowed(conn.addr[0]):
         conn.alive = False
-        conn.sock.close()
         return
     conn.send("S_SYS_BATTLE_ENCRYPT_SEED", {"need_encrypt": 0, "in_seed": 0, "out_seed": 0, "need_handshake": 0})
 
@@ -464,6 +499,11 @@ PLAYER_UNIT_ID = 1000
 @handler("C_FIGHT_REQ_LOGIN")
 @handler("C_FIGHT_LOGIN")
 def on_fight_login(conn, msg):
+    if HOST != "127.0.0.1":
+        ticket = wire_str(msg.get("key") or msg.get("login_key"))
+        if not REMOTE_LAB.enter_battle(conn, ticket):
+            conn.alive = False
+            return
     FIGHT_STATE["fight_id"] += 1
     battle_id = DEFAULT_BATTLE_ID
     spawn = SAVE.get("debug_spawn", [0.0, 3000.0, 0.0])
@@ -1747,14 +1787,27 @@ def client_loop(conn, on_connect):
         for body in conn.messages():
             name, cmd, sub, data = PROTO.decode(body, "C")
             if name not in QUIET_MESSAGES:
-                log("[%s] <- %s (%d,%d) %s" % (conn.kind, name or "?", cmd, sub, short(data)))
-            # Legacy offline handlers mutate global SAVE/GATE/FIGHT_STATE. A remote
-            # login socket must never dispatch arbitrary handler names (for
-            # example C_LOGIN_CREATE) to bypass C_LOGIN_AUTH's rejection.
-            if HOST not in ("127.0.0.1", "::1") and conn.kind == "login" and name != "C_LOGIN_AUTH":
-                log("[login] blocked unauthenticated remote command %s" % (name or "?"))
-                conn.alive = False
-                break
+                log("[%s] <- %s (%d,%d) %s" % (conn.kind, name or "?", cmd, sub,
+                                              short(redact_wire_data(data))))
+            # The legacy offline handlers share all mutable SAVE/GATE/FIGHT
+            # state. Remote test mode is restricted to exactly one allowlisted
+            # source and explicit per-stage one-time handoffs; no unauthenticated
+            # gate/battle messages may reach a mutating handler.
+            if HOST != "127.0.0.1":
+                if not REMOTE_LAB.allowed(conn.addr[0]):
+                    conn.alive = False
+                    break
+                if conn.kind == "login" and name != "C_LOGIN_AUTH":
+                    conn.alive = False
+                    break
+                if conn.kind == "gate" and not getattr(conn, "lab_gateway", False):
+                    if name not in ("C_LOGIN_ENTER", "C_LOGIN_CREATE"):
+                        conn.alive = False
+                        break
+                if conn.kind == "battle" and not getattr(conn, "lab_battle", False):
+                    if name not in ("C_FIGHT_LOGIN", "C_FIGHT_REQ_LOGIN"):
+                        conn.alive = False
+                        break
             fn = HANDLERS.get(name)
             if fn:
                 try:
@@ -1771,6 +1824,10 @@ def client_loop(conn, on_connect):
         log("[%s] unexpected failure\n%s" % (conn.kind, traceback.format_exc()))
     finally:
         conn.alive = False
+        if HOST != "127.0.0.1":
+            REMOTE_LAB.disconnect(conn)
+            if GATE.get("conn") is conn:
+                GATE["conn"] = None
         conn.sock.close()
         CLIENT_SLOTS.release()
         log("[%s] disconnect %s" % (conn.kind, conn.addr))
