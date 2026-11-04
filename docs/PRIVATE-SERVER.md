@@ -24,3 +24,10 @@ For isolated VPN experiments, `CDR_BIND_HOST` can be a private interface and `CD
 
 ## Security
 No public TCP exposure, no router port forwarding, no production Docker deployment yet. The game protocol is currently unencrypted and the original offline server has a single shared player and game state. See `ROADMAP-MULTIPLAYER.md`.
+
+## Containerized development server (local only)
+```sh
+docker compose up --build -d
+docker compose logs -f
+```
+Uses a non-root user, read-only filesystem, Docker-managed persistent data, and host-loopback-only published TCP ports 8000, 4000, 4001, 4002. This starts **only** the simulated Python server; the original Windows game client is not included or distributed. `CDR_ADVERTISE_HOST=127.0.0.1` is the client-visible address, separate from the container listener. This is not a public-server deployment.
