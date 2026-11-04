@@ -221,7 +221,9 @@ def on_login_auth(conn, msg):
     conn.send("S_LOGIN_AUTH", {
         "err_code": 0, "err_msg": "", "warn_msg": "", "unisdk_login_json": "",
         "auth_hostid": 1, "auth_sn": auth_sn, "zone_list": [zone],
-        "origin_account": "offline", "aid": SAVE["aid"], "sdk_username": "offline",
+        "origin_account": verified["username"] if MULTIUSER else "offline",
+        "aid": SAVE["aid"],
+        "sdk_username": verified["username"] if MULTIUSER else "offline",
     })
 
 
