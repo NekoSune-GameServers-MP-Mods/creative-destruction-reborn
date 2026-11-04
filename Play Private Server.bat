@@ -20,6 +20,13 @@ if not exist "%~dp0Documents\nonpatch_user_data.dat" (
     pause
     exit /b 1
 )
+if exist "%~dp0RebornLauncher.exe" (
+    start "" /wait "%~dp0RebornLauncher.exe"
+    exit /b %errorlevel%
+)
+echo.
+echo GUI executable is not installed. Falling back to the Python launcher.
+echo Download the latest Windows GUI artifact to avoid the console.
 echo.
 echo Connecting to the configured Reborn server...
 echo Account login is required. This launcher starts the local secure bridge and game.
