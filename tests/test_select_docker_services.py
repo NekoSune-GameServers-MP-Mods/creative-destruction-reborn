@@ -21,12 +21,12 @@ class SelectImagesTests(unittest.TestCase):
 
     def test_pr_and_main_rebuild_only_affected_images(self):
         for event, branch in (("pull_request", "account"), ("push", "main")):
-            self.assertEqual(selected(["reborn/server/accounts.py"], event, branch), ["account-api"])
+            self.assertEqual(selected(["reborn/server/accounts.py"], event, branch), ["game-server", "account-api"])
             self.assertEqual(selected(["reborn/server/offline_server.py"], event, branch), ["game-server"])
             self.assertEqual(selected(["reborn/server/staff_dashboard.py"], event, branch), ["staff"])
             self.assertEqual(selected(["reborn/server/cluster_api.py"], event, branch), ["cluster-api"])
             self.assertEqual(selected(["reborn/server/cluster_agent.py"], event, branch), ["cluster-agent"])
-            self.assertEqual(selected(["reborn/server/player_profiles.py"], event, branch), ["account-api"])
+            self.assertEqual(selected(["reborn/server/player_profiles.py"], event, branch), ["game-server", "account-api"])
             self.assertEqual(selected(["docs/README.md"], event, branch), [])
 
     def test_shared_build_changes_rebuild_all(self):
