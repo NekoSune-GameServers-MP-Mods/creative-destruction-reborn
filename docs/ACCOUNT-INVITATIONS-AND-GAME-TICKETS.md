@@ -37,3 +37,11 @@ The bearer token stays on the HTTPS Windows bridge; account passwords and long-l
 **Database sharing:** account-api and game-server MUST mount the same `/app/reborn/server/save/accounts.sqlite3` and SQLite WAL sidecar storage under the same persistent volume. This design is suitable for the *same VPS*, not a shared SQLite file mounted by independent remote nodes. True multi-VPS hosting needs a central authenticated account/identity service and a multi-node ticket-validation API.
 
 Other security work still needed: account recovery, moderation/bans, rate-limit storage shared across replicated API instances, and load testing.
+
+## Optional open signup (administrator opt-in)
+
+The API defaults to **invite-only** mode. For self-service signup, set `CDR_PUBLIC_REGISTRATION=1` in the VPS `.env` and deploy/recreate the **account-api** container using `compose.vps.yaml` (or pass the same environment setting explicitly through your production account API Compose service). This does **not** require or reveal the administrator key to players. Users can then POST `{"username":"ExamplePlayer","password":"strong unique password"}` to `/v1/register` without `invite_code`.
+
+Before enabling public registration, configure Cloudflare WAF/rate limiting for `/v1/register` and monitor abuse. The built-in rate limiter is per-process and not sufficient protection against distributed abuse by itself. Keep `CDR_REGISTRATION_KEY` private for issuing invitations. Disable open sign-up again by changing the flag to `0` and recreating the account API container. This does not delete accounts.
+
+**Cloudflare 403 is a separate deployment issue:** A `403` with `text/plain` or an HTML challenge may be returned at the edge before Python sees the request. Confirm the matching Cloudflare Security Event by Ray ID; allow legitimate JSON POSTs to `/v1/register`, `/v1/login` and `/v1/game-ticket` through a narrowly scoped, rate-limited rule. Do not disable all Cloudflare protections globally. For an origin-side `403` JSON body containing `registration_requires_invitation`, public registration has not been enabled in the running container.
