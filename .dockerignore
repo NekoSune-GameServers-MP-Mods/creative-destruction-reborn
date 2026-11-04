@@ -1,0 +1,10 @@
+**/__pycache__/
+**/*.pyc
+.git/
+.github/
+runtime/
+reborn/dxvk/
+reborn/client_mod/
+docs/
+tests/
+*.bat
