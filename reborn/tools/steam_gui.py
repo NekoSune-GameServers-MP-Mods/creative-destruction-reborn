@@ -48,7 +48,11 @@ def friendly_error(detail, action="login"):
     if "http 429" in value or "rate_limited" in value:
         return "Too many attempts. Please try again later."
     if "http 403" in value or "forbidden" in value:
-        return "The account service refused access. Check the connection in Settings."
+        if "content-type=text/plain" in value or "content-type=text/html" in value:
+            return ("Cloudflare or a reverse proxy blocked the account request. "
+                    "The server owner must check Cloudflare Security Events and allow the account API route.")
+        return ("The account service denied this request. "
+                "Check whether sign-up is enabled or your invitation is valid.")
     if "timed out" in value or "urlerror" in value:
         return "Could not connect to the account service. Check your connection."
     if "put the gui launcher" in value:
@@ -90,9 +94,10 @@ def diagnose_game(host, tls_host):
 
 def signup(auth_url, username, password, invite):
     """Create an account via the existing single-use invite API, no secrets on disk."""
-    data = json.dumps({
-        "username": username, "password": password, "invite_code": invite
-    }).encode("utf-8")
+    payload = {"username": username, "password": password}
+    if invite:
+        payload["invite_code"] = invite
+    data = json.dumps(payload).encode("utf-8")
     request = Request(auth_url.rstrip("/") + "/v1/register", data=data,
                       headers={"Content-Type": "application/json"},
                       method="POST")
@@ -256,12 +261,12 @@ class RebornLauncher:
         p.pack(fill="both", expand=True)
         ttk.Label(p, text="Your next adventure starts here", font=("Segoe UI", 19, "bold")
                   ).pack(anchor="w")
-        ttk.Label(p, text="Join the Reborn community with a one-time invitation.",
+        ttk.Label(p, text="Create a Reborn account. An invitation is needed only on invite-only servers.",
                   style="Sub.TLabel").pack(anchor="w", pady=(5, 0))
         self.field(p, "Username", self.reg_username)
         self.field(p, "Password (12–128 characters)", self.reg_password, secret=True)
         self.field(p, "Confirm password", self.reg_confirm, secret=True)
-        self.field(p, "One-time invitation", self.invite, secret=True)
+        self.field(p, "Invitation code (optional if public sign-up is enabled)", self.invite, secret=True)
         self.register_button = ttk.Button(p, text="CREATE ACCOUNT",
                                           command=self.on_register)
         self.register_button.pack(anchor="w", pady=(20, 0))
@@ -396,8 +401,8 @@ class RebornLauncher:
         if password != confirm:
             messagebox.showwarning("Passwords differ", "Both passwords must match.")
             return
-        if len(password) < 12 or len(password) > 128 or not username or not invite:
-            messagebox.showwarning("Missing details", "Enter username, 12–128 character password and invite.")
+        if len(password) < 12 or len(password) > 128 or not username:
+            messagebox.showwarning("Missing details", "Enter a username and a 12–128 character password.")
             return
         try:
             _, _, auth_url = self.current()
