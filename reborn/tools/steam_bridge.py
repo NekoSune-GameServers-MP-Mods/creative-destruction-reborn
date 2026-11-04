@@ -18,6 +18,7 @@ import http.server
 import ipaddress
 import json
 import socket
+import ssl
 import socketserver
 import struct
 import sys
@@ -143,11 +144,15 @@ class TcpBridge(socketserver.ThreadingTCPServer):
     request_queue_size = 32
 
 
-def tcp_handler(port, host, account):
+def tcp_handler(port, host, account, tls_hostname):
+    tls_context = ssl.create_default_context()
+
     class Handler(socketserver.BaseRequestHandler):
         def handle(self):
             try:
-                with socket.create_connection((host, port), timeout=10) as remote:
+                raw = socket.create_connection((host, port), timeout=10)
+                # Certificate verification is mandatory: never use CERT_NONE.
+                with tls_context.wrap_socket(raw, server_hostname=tls_hostname) as remote:
                     remote.settimeout(None)
                     self.request.settimeout(None)
                     outbound = threading.Thread(
@@ -193,11 +198,11 @@ def discovery_handler(host):
     return Handler
 
 
-def run(host, account):
+def run(host, account, tls_hostname):
     servers = []
     try:
         for port in PORTS:
-            srv = TcpBridge((LOOPBACK, port), tcp_handler(port, host, account))
+            srv = TcpBridge((LOOPBACK, port), tcp_handler(port, host, account, tls_hostname))
             servers.append(srv)
         web = http.server.ThreadingHTTPServer((LOOPBACK, 8000),
                                               discovery_handler(host))
@@ -219,15 +224,20 @@ def main():
     parser.add_argument("--game-server", required=True, help="VPS public or VPN IPv4")
     parser.add_argument("--auth-url", required=True, help="HTTPS Reborn account API")
     parser.add_argument("--username", required=True, help="Your Reborn account username")
+    parser.add_argument("--game-tls-hostname", required=True,
+                        help="DNS name on the VPS game TLS certificate (verified)")
     args = parser.parse_args()
     host = str(ipaddress.IPv4Address(args.game_server))
+    tls_name = args.game_tls_hostname.strip()
+    if not tls_name or len(tls_name) > 253 or "://" in tls_name or "/" in tls_name:
+        parser.error("Invalid TLS hostname")
     if ipaddress.IPv4Address(host).is_loopback or ipaddress.IPv4Address(host).is_unspecified:
         parser.error("VPS address must not be localhost")
     try:
         password = getpass.getpass("Reborn account password: ")
         account = AccountLogin(args.auth_url, args.username, password)
         password = None
-        run(host, account)
+        run(host, account, tls_name)
     except (ValueError, OSError, URLError) as exc:
         parser.exit(1, "Bridge startup failed: %s\n" % type(exc).__name__)
     except KeyboardInterrupt:
