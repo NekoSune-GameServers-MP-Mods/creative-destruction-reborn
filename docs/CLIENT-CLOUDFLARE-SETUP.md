@@ -14,17 +14,17 @@ The client package contains `reborn/client-config.json`:
 
 ```json
 {
-  "game_host": "game.cdr.nekosunevr.co.uk",
-  "game_tls_hostname": "game.cdr.nekosunevr.co.uk",
-  "auth_url": "https://auth.cdr.nekosunevr.co.uk"
+  "game_host": "game-cdr.nekosunevr.co.uk",
+  "game_tls_hostname": "game-cdr.nekosunevr.co.uk",
+  "auth_url": "https://auth-cdr.nekosunevr.co.uk"
 }
 ```
 
 These are **proposed/locally configured addresses**, not a proof DNS/TLS services are working.
 
-- `auth.cdr.nekosunevr.co.uk`: public HTTPS Cloudflare Tunnel address to the account API, which must be running on the VPS and reachable through its private Docker network.
-- `game.cdr.nekosunevr.co.uk`: a **DNS-only** Cloudflare A record to the VPS IP; do not enable orange-cloud HTTP proxy. The VPS must publish TCP 4000 (login), 4001 (gateway), 4002 (battle) with certificate-verified TLS. Port 8000 serves game discovery via HTTP and is requested by the local bridge.
-- The game server **must** have a publicly trusted TLS certificate with SAN for `game.cdr.nekosunevr.co.uk`; a Cloudflare Origin CA certificate is generally **not trusted** by the Python client. DNS records alone don't configure the VPS certificate.
+- `auth-cdr.nekosunevr.co.uk`: public HTTPS Cloudflare Tunnel address to the account API, which must be running on the VPS and reachable through its private Docker network.
+- `game-cdr.nekosunevr.co.uk`: a **DNS-only** Cloudflare A record to the VPS IP; do not enable orange-cloud HTTP proxy. The VPS must publish TCP 4000 (login), 4001 (gateway), 4002 (battle) with certificate-verified TLS. Port 8000 serves game discovery via HTTP and is requested by the local bridge.
+- The game server **must** have a publicly trusted TLS certificate with SAN for `game-cdr.nekosunevr.co.uk`; a Cloudflare Origin CA certificate is generally **not trusted** by the Python client. DNS records alone don't configure the VPS certificate.
 - Standard Cloudflare Tunnel public hostname routing is HTTP-oriented and **does not transparently handle these raw game TCP ports for an unmodified Steam client**. This client bridge sends game traffic directly to the DNS-only game hostname.
 - Each player needs a separate registered Reborn account. The account administrator can issue single-use invitations, then players register with `reborn/tools/steam_register.py`. Never share the administrator registration key.
 
@@ -34,7 +34,7 @@ These are **proposed/locally configured addresses**, not a proof DNS/TLS service
 2. Close your old offline game server, if running. The new bridge must own localhost TCP 4000, 4001, 4002 and HTTP 8000.
 3. **Double-click `Play Private Server.bat`** in the game directory.
 4. Enter your registered Reborn username and password at the prompts.
-5. The launcher securely logs into `https://auth.cdr.nekosunevr.co.uk`, automatically patches the game discovery endpoint to `127.0.0.1:8000` (with a backup), starts the local secure bridge, then launches `client.exe`.
+5. The launcher securely logs into `https://auth-cdr.nekosunevr.co.uk`, automatically patches the game discovery endpoint to `127.0.0.1:8000` (with a backup), starts the local secure bridge, then launches `client.exe`.
 6. Choose your game server and Play. The bridge silently obtains a fresh single-use ticket and verifies the game's remote TLS certificate. Closing the game stops the launcher/bridge.
 
 No typing of `--game-server`, `--game-tls-hostname` or `--auth-url` is needed for ordinary play.
