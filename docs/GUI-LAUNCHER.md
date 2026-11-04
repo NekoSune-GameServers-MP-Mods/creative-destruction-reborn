@@ -7,9 +7,9 @@ Double-click **`RebornLauncher.exe`** (or `Play Private Server.bat`; it opens th
 ## GUI functions
 
 - **Play** — Reborn username/password, secure account authentication, patch local discovery, launch localhost TLS bridge and start `client.exe`. The game runs while the GUI remains responsive. The password is not saved in configuration.
-- **Create Account** — independent username/password signup using an administrator-issued **one-use invite code**. Existing accounts need not register again. Operators can create their own first account directly inside their account-api container; there is deliberately no public administrator-secret field.
+- **Create Account** — independent username/password signup using a **one-use invite code when the account server is invite-only**. If the operator enables `CDR_PUBLIC_REGISTRATION=1` on the account API, the invitation field may be left blank. Existing accounts need not register again. Operators can create their own first account directly inside their account-api container; there is deliberately no public administrator-secret field.
 - **Settings & Diagnostics** — edit public game DNS hostname, game TLS hostname, HTTPS account URL; save them in `reborn/client-config.json` (no credentials). Test account endpoint and TLS 4000 separately.
-- **Error messages** — show HTTP status, known API error codes, and Cloudflare Ray ID without exposing credentials or bearer tokens.
+- **Error messages** — show player-friendly guidance without exposing account credentials, bearer tokens or raw Cloudflare diagnostics. Administrators should use Cloudflare Security Events for Ray IDs.
 
 Defaults:
 
