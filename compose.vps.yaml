@@ -1,9 +1,9 @@
 # DEVELOPMENT VPS via Tailscale/WireGuard private IPv4 only — NOT public multiplayer.
 # Set CDR_VPN_IP and CDR_STAFF_TOKEN in .env, then:
-# docker compose -f compose.vps.yaml up --build -d
+# docker compose -f compose.vps.yaml pull && docker compose -f compose.vps.yaml up -d
 services:
   game-server:
-    build: .
+    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
     restart: unless-stopped
     init: true
     read_only: true
@@ -27,7 +27,7 @@ services:
     pids_limit: 128
     mem_limit: 512m
   account-api:
-    build: .
+    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
     command: ["python", "account_api.py"]
     restart: unless-stopped
     init: true
@@ -48,7 +48,7 @@ services:
     pids_limit: 64
     mem_limit: 256m
   staff:
-    build: .
+    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
     command: ["python", "staff_dashboard.py"]
     restart: unless-stopped
     init: true
