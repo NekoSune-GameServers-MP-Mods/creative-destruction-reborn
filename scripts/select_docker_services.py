@@ -18,15 +18,17 @@ ALL_IMAGE_FILES = {
     "scripts/select_docker_services.py",
 }
 SOURCES = {
-    "game-server": ("reborn/server/",),
+    "game-server": ("reborn/server/offline_server.py", "reborn/server/bots.py",
+                    "reborn/server/loot.py", "reborn/server/nexproto.py",
+                    "reborn/server/server_config.py", "reborn/server/i18n.py",
+                    "reborn/server/data/"),
     "account-api": ("reborn/server/accounts.py", "reborn/server/account_api.py",
                     "reborn/server/player_profiles.py"),
     "staff": ("reborn/server/staff_dashboard.py",),
     "cluster-api": ("reborn/server/cluster_api.py",),
     "cluster-agent": ("reborn/server/cluster_agent.py",),
 }
-# The game-server Dockerfile currently COPYs the full reborn/server/ tree.
-# Consequently any reborn/server/ change must rebuild game-server.
+# Game-server has an explicit COPY list, so account/staff edits do not rebuild it.
 COMPOSE = {
     "compose.yaml": ("game-server",),
     "compose.vps.yaml": ("game-server", "account-api", "staff"),
