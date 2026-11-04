@@ -17,8 +17,8 @@ services:
       - "127.0.0.1:4001:4001/tcp"
       - "127.0.0.1:4002:4002/tcp"
     volumes:
-      - ./runtime/logs:/app/reborn/server/logs
-      - ./runtime/save:/app/reborn/server/save
+      - cdr_logs:/app/reborn/server/logs
+      - cdr_save:/app/reborn/server/save
     tmpfs:
       - /tmp:size=16m,noexec,nosuid,nodev
     security_opt:
@@ -27,3 +27,7 @@ services:
       - ALL
     pids_limit: 128
     mem_limit: 512m
+
+volumes:
+  cdr_logs:
+  cdr_save:
