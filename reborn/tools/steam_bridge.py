@@ -79,6 +79,32 @@ class AccountLogin:
             with ACCOUNT_OPENER.open(req, timeout=15) as resp:
                 return json.loads(resp.read(8192))
         except HTTPError as exc:
+            # Never print request bodies, account passwords or bearer tokens.
+            # The Reborn /v1/login endpoint returns 401 on bad credentials;
+            # a 403 commonly originates from Cloudflare Access/WAF.
+            if exc.code == 403:
+                marker = (exc.headers.get("Content-Type", "") or "").lower()
+                server = (exc.headers.get("Server", "") or "").lower()
+                if "cloudflare" in server or "text/html" in marker:
+                    raise ValueError(
+                        "Account API HTTP 403: Cloudflare Access/WAF may be blocking "
+                        "the launcher. Check Zero Trust Access policies and WAF "
+                        "Security Events for auth-cdr.nekosunevr.co.uk."
+                    ) from exc
+                raise ValueError(
+                    "Account API HTTP 403: request forbidden. Verify Cloudflare "
+                    "Access/WAF rules and account API route; no credentials were logged."
+                ) from exc
+            if exc.code == 401:
+                raise ValueError(
+                    "Account API HTTP 401: account username/password rejected, "
+                    "or account session expired."
+                ) from exc
+            if exc.code == 429:
+                raise ValueError(
+                    "Account API HTTP 429: too many attempts; review API and "
+                    "Cloudflare rate limits."
+                ) from exc
             raise ValueError("Account API returned HTTP %d" % exc.code) from exc
 
     def issue_ticket(self):
