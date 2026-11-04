@@ -1785,7 +1785,7 @@ def zone_display_name():
         raise ValueError("CDR_ZONE_NAME must be 1-24 ASCII letters, digits, '-' or '_'")
     return value
 
-ZONELIST = "%d %s pc 202001010000 1\\n" % (ZONE_ID, zone_display_name())
+ZONELIST = "%d %s pc 202001010000 1\n" % (ZONE_ID, zone_display_name())
 HTTP_FILES = {
     "loginlist_rel_pc_na.txt": LOGINLIST,
     "loginlist_rel_steam_na.txt": LOGINLIST,
