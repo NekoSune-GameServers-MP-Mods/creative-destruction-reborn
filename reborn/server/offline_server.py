@@ -24,6 +24,8 @@ import traceback
 import bots
 import loot
 from nexproto import Protocol
+from server_config import listener_host, connection_limit
+from i18n import tr
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -33,7 +35,8 @@ PROTO_DIR = os.path.join(ROOT, "decomp", "scripts_py", "proto")
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
 
-HOST = "127.0.0.1"
+HOST = listener_host()
+CLIENT_SLOTS = threading.BoundedSemaphore(connection_limit())
 HTTP_PORT, LOGIN_PORT, GATE_PORT = 8000, 4000, 4001
 ZONE_ID = 1
 
@@ -116,9 +119,14 @@ class Connection:
             if not chunk:
                 return
             self.buf += chunk
+            # Header is uint16; bound buffering and refuse impossible frames.
+            if len(self.buf) > 131070:
+                raise ValueError("Receive buffer limit exceeded")
             while len(self.buf) >= 2:
                 total = struct.unpack_from("<H", self.buf)[0]
-                if total < 2 or len(self.buf) < total:
+                if total < 2:
+                    raise ValueError("Invalid frame length")
+                if len(self.buf) < total:
                     break
                 body, self.buf = self.buf[2:total], self.buf[total:]
                 yield body
@@ -1687,11 +1695,20 @@ def serve_tcp(port, kind, on_connect=None):
     else:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind((HOST, port))
-    s.listen(8)
-    log("%s listening on %d" % (kind, port), console=True)
+    s.listen(32)
+    log(tr("listen", kind=kind, port=port), console=True)
     while True:
         c, a = s.accept()
-        threading.Thread(target=client_loop, args=(Connection(c, a, kind), on_connect), daemon=True).start()
+        if not CLIENT_SLOTS.acquire(blocking=False):
+            log(tr("full"))
+            c.close()
+            continue
+        try:
+            threading.Thread(target=client_loop, args=(Connection(c, a, kind), on_connect), daemon=True).start()
+        except Exception:
+            CLIENT_SLOTS.release()
+            c.close()
+            raise
 
 
 # High-frequency client messages: not logged at all (they arrive ~20 times per second).
@@ -1716,10 +1733,15 @@ def client_loop(conn, on_connect):
                     log("handler %s failed\n%s" % (name, traceback.format_exc()))
             elif name not in QUIET_MESSAGES:
                 log("%s (%d,%d) %s" % (name or "?", cmd, sub, short(data, 600)), "unhandled.log")
-    except (ConnectionError, OSError) as e:
-        log("[%s] socket error %s" % (conn.kind, e))
-    conn.alive = False
-    log("[%s] disconnect %s" % (conn.kind, conn.addr))
+    except (ConnectionError, OSError, ValueError, struct.error) as e:
+        log("[%s] connection error %s" % (conn.kind, e))
+    except Exception:
+        log("[%s] unexpected failure\n%s" % (conn.kind, traceback.format_exc()))
+    finally:
+        conn.alive = False
+        conn.sock.close()
+        CLIENT_SLOTS.release()
+        log("[%s] disconnect %s" % (conn.kind, conn.addr))
 
 
 LOGINLIST = "1 %s %d\n" % (HOST, LOGIN_PORT)
@@ -1748,12 +1770,14 @@ class HttpHandler(http.server.BaseHTTPRequestHandler):
 
 
 def main():
-    log("Creative Destruction Reborn - offline server. Leave this window open while playing.", console=True)
+    log(tr("start"), console=True)
+    if HOST not in ("127.0.0.1", "::1"):
+        log(tr("remote"), console=True)
     log("loaded %d protocol messages" % len(PROTO.by_name), console=True)
     threading.Thread(target=serve_tcp, args=(LOGIN_PORT, "login", send_seed), daemon=True).start()
     threading.Thread(target=serve_tcp, args=(GATE_PORT, "gate", gate_on_connect), daemon=True).start()
     threading.Thread(target=serve_tcp, args=(BATTLE_PORT, "battle", battle_on_connect), daemon=True).start()
-    log("HTTP listening on %d" % HTTP_PORT, console=True)
+    log(tr("http", port=HTTP_PORT), console=True)
     http.server.ThreadingHTTPServer((HOST, HTTP_PORT), HttpHandler).serve_forever()
 
 
