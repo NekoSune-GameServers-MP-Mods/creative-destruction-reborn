@@ -219,16 +219,7 @@ class Protocol:
                 for name, d in json.load(f).items():
                     self._add(name, {"CMD": d["CMD"], "SUBCMD": d["SUBCMD"], "BODY": _as_tuples(d["BODY"])})
             return
-        for fn in sorted(os.listdir(source)):
-            if not fn.endswith("_pto.py"):
-                continue
-            src = open(os.path.join(source, fn), encoding="utf-8").read()
-            src = re.sub(r"^return\s*$", "", src, flags=re.M)
-            ns = {}
-            exec(compile(src, fn, "exec"), ns)
-            for name, d in ns.items():
-                if (name.startswith("S_") or name.startswith("C_")) and isinstance(d, dict) and "SUBCMD" in d:
-                    self._add(name, d)
+        raise ValueError("Protocol JSON required: dynamic execution of protocol Python files is disabled")
 
     def _add(self, name, d):
         d = dict(d, NAME=name)
