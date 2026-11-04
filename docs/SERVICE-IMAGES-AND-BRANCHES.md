@@ -57,3 +57,37 @@ This fixes **discovery formatting only**, not the red status / 999ms issue or th
 The old monolithic image `ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest` is **not automatically removed** by this change. New deployments reference the five service-specific image paths. Avoid launching a second Compose project on the same host ports; switch over the existing project instead.
 
 Only private/protected development instances are appropriate until per-player state isolation and secure authenticated game handoffs are implemented.
+
+## Selective branch builds (updated)
+
+The workflow `.github/workflows/docker-publish.yml` is installed on all five service branches, not just `main`. A **push to a dedicated service branch** automatically builds and publishes **only that branch's image**, without waiting for a PR to be merged:
+
+| Push branch | Only GHCR image published | Image tag |
+| --- | --- | --- |
+| `server` | `game-server` | `branch-server` |
+| `account` | `account-api` | `branch-account` |
+| `staff` | `staff` | `branch-staff` |
+| `cluster-api` | `cluster-api` | `branch-cluster-api` |
+| `cluster-agent` | `cluster-agent` | `branch-cluster-agent` |
+
+For example, an update pushed to `account` produces:
+```text
+ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn/account-api:branch-account
+```
+
+Pull requests **build without publishing**. A PR against `main`, or a push to `main`, selects only images actually affected by its changed runtime files, compose files or shared Dockerfiles. Shared build definitions can trigger a rebuild of all images, because they affect every target. An unrelated documentation change triggers no image build. `latest` is **reserved for `main`**, and a branch push never overwrites it.
+
+Selectively test a branch image on the VPS by setting its image override in your existing local `.env`, e.g.
+```dotenv
+CDR_ACCOUNT_API_IMAGE=ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn/account-api:branch-account
+```
+Then update only that service with your actual Compose filename:
+```bash
+cd /opt/stacks/creative-destruction
+docker compose -f compose.yaml pull account-api
+docker compose -f compose.yaml up -d --no-deps account-api
+```
+
+This does **not** deploy by itself; publishing GHCR images and updating live VPS containers are separate operations. Use `workflow_dispatch` with `service` to manually build one selected service or `all` to rebuild all. On first deployment, make sure images and access permissions allow the VPS to pull from GHCR. Named volumes remain unchanged; do not run `down -v`.
+
+The `server`, `account`, `staff`, `cluster-api` and `cluster-agent` branches can diverge; changes should still be integrated and tested together before labelling a version public multiplayer-ready.
