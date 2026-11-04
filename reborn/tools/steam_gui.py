@@ -191,23 +191,60 @@ class RebornLauncher:
         return entry
 
     def build_play(self):
-        p = ttk.Frame(self.play_tab, padding=(34, 20))
-        p.pack(fill="both", expand=True)
-        ttk.Label(p, text="Ready to drop in?", font=("Segoe UI", 21, "bold")
-                  ).pack(anchor="w", pady=(0, 6))
-        ttk.Label(p, text="Sign in with your independent Reborn account.",
-                  style="Sub.TLabel").pack(anchor="w")
-        user_entry = self.field(p, "Reborn username", self.username)
-        password_entry = self.field(p, "Password", self.password, secret=True)
+        shell = tk.Frame(self.play_tab, bg=BG, padx=28, pady=28)
+        shell.pack(fill="both", expand=True)
+        shell.grid_columnconfigure(0, weight=3)
+        shell.grid_columnconfigure(1, weight=2)
+        shell.grid_rowconfigure(0, weight=1)
+
+        left = tk.Frame(shell, bg=PANEL, padx=28, pady=25,
+                        highlightthickness=1, highlightbackground="#293447")
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
+        tk.Label(left, text="PLAYER ACCOUNT", bg=PANEL, fg=ACCENT,
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        tk.Label(left, text="Ready to drop in?", bg=PANEL, fg=TEXT,
+                 font=("Segoe UI", 21, "bold")).pack(anchor="w", pady=(8, 5))
+        tk.Label(left, text="Sign in to your independent Reborn account.",
+                 bg=PANEL, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", pady=(0, 19))
+        tk.Label(left, text="Username", bg=PANEL, fg=TEXT,
+                 font=("Segoe UI", 10)).pack(anchor="w", pady=(0, 5))
+        user_entry = ttk.Entry(left, textvariable=self.username, font=("Segoe UI", 11))
+        user_entry.pack(fill="x", pady=(0, 13))
+        tk.Label(left, text="Password", bg=PANEL, fg=TEXT,
+                 font=("Segoe UI", 10)).pack(anchor="w", pady=(0, 5))
+        password_entry = ttk.Entry(left, textvariable=self.password,
+                                   show="•", font=("Segoe UI", 11))
+        password_entry.pack(fill="x")
         password_entry.bind("<Return>", lambda _: self.on_play())
-        self.play_button = ttk.Button(p, text="SIGN IN & PLAY", style="Accent.TButton",
-                                      command=self.on_play)
-        self.play_button.pack(anchor="w", pady=(24, 15))
-        ttk.Label(p, text="Secure connection and game bridge start automatically.",
-                  style="Sub.TLabel").pack(anchor="w")
-        ttk.Label(p, text="New player? Create an account with a server invitation.",
-                  style="Sub.TLabel").pack(anchor="w", pady=(10, 0))
+        self.play_button = ttk.Button(left, text="SIGN IN & PLAY",
+                                      style="Accent.TButton", command=self.on_play)
+        self.play_button.pack(fill="x", pady=(23, 13))
+        tk.Label(left, text="Don't have an account? Select Create Account above.",
+                 bg=PANEL, fg=MUTED, font=("Segoe UI", 9),
+                 wraplength=360, justify="left").pack(anchor="w")
         user_entry.focus_set()
+
+        right = tk.Frame(shell, bg="#11252b", padx=23, pady=26,
+                         highlightthickness=1, highlightbackground="#285448")
+        right.grid(row=0, column=1, sticky="nsew")
+        tk.Label(right, text="REBORN MULTIPLAYER", bg="#11252b",
+                 fg=ACCENT, font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        tk.Label(right, text="WELCOME TO\nTHE BATTLEFIELD",
+                 bg="#11252b", fg=TEXT, justify="left",
+                 font=("Segoe UI", 19, "bold")).pack(anchor="w", pady=(22, 12))
+        tk.Label(right, text="A community-hosted revival experience.",
+                 bg="#11252b", fg="#b1c9c7",
+                 font=("Segoe UI", 10), wraplength=260,
+                 justify="left").pack(anchor="w", pady=(0, 30))
+        tk.Label(right, text="GAME SERVER", bg="#11252b",
+                 fg="#87aea9", font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        tk.Label(right, textvariable=self.game_host, bg="#11252b",
+                 fg=TEXT, wraplength=270, justify="left",
+                 font=("Segoe UI", 10)).pack(anchor="w", pady=(6, 18))
+        tk.Label(right, text="Secure sign-in  •  Automatic game bridge",
+                 bg="#11252b", fg="#87aea9",
+                 font=("Segoe UI", 9), wraplength=265,
+                 justify="left").pack(anchor="w")
 
     def build_registration(self):
         p = ttk.Frame(self.register_tab, padding=(34, 16))
