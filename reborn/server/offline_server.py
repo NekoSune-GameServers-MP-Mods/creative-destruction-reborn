@@ -241,10 +241,14 @@ def on_login_create(conn, msg):
 
 @handler("C_LOGIN_ENTER")
 def on_login_enter(conn, msg):
-    if HOST != "127.0.0.1" and not REMOTE_LAB.enter_gateway(conn, wire_str(msg.get("auth_sn"))):
-        conn.alive = False
-        return
     if HOST != "127.0.0.1":
+        claimed_uid = msg.get("uid", 0)
+        if type(claimed_uid) is not int or claimed_uid not in (0, SAVE["uid"]):
+            conn.alive = False
+            return
+        if not getattr(conn, "lab_gateway", False) and not REMOTE_LAB.enter_gateway(conn, wire_str(msg.get("auth_sn"))):
+            conn.alive = False
+            return
         GATE["conn"] = conn
     enter_game(conn)
 
@@ -499,11 +503,15 @@ PLAYER_UNIT_ID = 1000
 @handler("C_FIGHT_REQ_LOGIN")
 @handler("C_FIGHT_LOGIN")
 def on_fight_login(conn, msg):
-    if HOST != "127.0.0.1" and not getattr(conn, "lab_battle", False):
-        ticket = wire_str(msg.get("key") or msg.get("login_key"))
-        if not REMOTE_LAB.enter_battle(conn, ticket):
+    if HOST != "127.0.0.1":
+        if type(msg.get("uid")) is not int or msg["uid"] != SAVE["uid"]:
             conn.alive = False
             return
+        if not getattr(conn, "lab_battle", False):
+            ticket = wire_str(msg.get("key") or msg.get("login_key"))
+            if not REMOTE_LAB.enter_battle(conn, ticket):
+                conn.alive = False
+                return
     FIGHT_STATE["fight_id"] += 1
     battle_id = DEFAULT_BATTLE_ID
     spawn = SAVE.get("debug_spawn", [0.0, 3000.0, 0.0])
