@@ -4,7 +4,7 @@
 services:
   volume-init:
     # One-shot volume ownership repair; the game and account API stay non-root.
-    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    image: ${CDR_GAME_SERVER_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn/game-server:latest}
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -18,7 +18,7 @@ services:
       - cdr_logs:/app/reborn/server/logs
       - cdr_save:/app/reborn/server/save
   game-server:
-    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    image: ${CDR_GAME_SERVER_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn/game-server:latest}
     depends_on:
       volume-init:
         condition: service_completed_successfully
@@ -46,7 +46,7 @@ services:
     pids_limit: 128
     mem_limit: 512m
   account-api:
-    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    image: ${CDR_ACCOUNT_API_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn/account-api:latest}
     depends_on:
       volume-init:
         condition: service_completed_successfully
@@ -70,7 +70,7 @@ services:
     pids_limit: 64
     mem_limit: 256m
   staff:
-    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    image: ${CDR_STAFF_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn/staff:latest}
     depends_on:
       volume-init:
         condition: service_completed_successfully
