@@ -50,6 +50,7 @@ class GameStates:
             bundle = {
                 "account_id": account_id, "save": save,
                 "gate": {"conn": None}, "fight": {"fight_id": 0},
+                "active": {"conn": None},
             }
             self.sessions[session_id] = bundle
             return bundle
