@@ -55,7 +55,7 @@ def handler_factory(store):
             self.wfile.write(raw)
 
         def do_POST(self):
-            if self.path not in ("/v1/register", "/v1/login", "/v1/logout", "/v1/game-ticket"):
+            if self.path not in ("/v1/register", "/v1/login", "/v1/logout", "/v1/game-ticket", "/v1/admin/invitations"):
                 return self.reply(404, {"error": "not_found"})
             if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
                 return self.reply(415, {"error": "json_required"})
@@ -74,6 +74,17 @@ def handler_factory(store):
                     return self.reply(401, {"error": "unauthorized"})
                 store.revoke(token)
                 return self.reply(200, {"ok": True})
+            if self.path == "/v1/admin/invitations":
+                submitted = self.headers.get("X-Registration-Key", "")
+                if len(REGISTER_KEY) < 32 or not hmac.compare_digest(submitted, REGISTER_KEY):
+                    return self.reply(403, {"error": "forbidden"})
+                if not allow_attempt(("admin-invitations", self.client_address[0])):
+                    return self.reply(429, {"error": "rate_limited"})
+                try:
+                    issued = store.create_invitation(data.get("lifetime_seconds", 86400))
+                except ValueError:
+                    return self.reply(400, {"error": "invalid_invite_lifetime"})
+                return self.reply(201, issued)
             if self.path == "/v1/game-ticket":
                 token = bearer(self.headers)
                 account = store.resolve(token)
@@ -89,13 +100,19 @@ def handler_factory(store):
                     return self.reply(401, {"error": "unauthorized"})
                 return self.reply(200, issued)
             if self.path == "/v1/register":
-                if not allow_attempt(("register", self.client_address[0])):
+                rate_user = str(data.get("username", "")).lower()[:32]
+                if not allow_attempt(("register", self.client_address[0], rate_user)):
                     return self.reply(429, {"error": "rate_limited"})
+                invite = data.get("invite_code")
                 submitted = self.headers.get("X-Registration-Key", "")
-                if len(REGISTER_KEY) < 32 or not hmac.compare_digest(submitted, REGISTER_KEY):
-                    return self.reply(403, {"error": "registration_disabled"})
                 try:
-                    account = store.register(data.get("username"), data.get("password"))
+                    if invite is not None:
+                        account = store.register_with_invite(
+                            data.get("username"), data.get("password"), invite)
+                    else:
+                        if len(REGISTER_KEY) < 32 or not hmac.compare_digest(submitted, REGISTER_KEY):
+                            return self.reply(403, {"error": "registration_requires_invitation"})
+                        account = store.register(data.get("username"), data.get("password"))
                     return self.reply(201, {"account": account})
                 except AuthError as exc:
                     return self.reply(400, {"error": str(exc)})
