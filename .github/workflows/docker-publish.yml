@@ -1,43 +1,97 @@
-name: Build and Publish Service Docker Images
+name: Selective Service Docker Build and Publish
 
 on:
   push:
     branches: [main, server, account, staff, cluster-api, cluster-agent]
-    tags: ['v*']
     paths:
       - 'Dockerfile'
       - '.dockerignore'
       - 'reborn/server/**'
+      - 'compose*.yaml'
+      - 'scripts/select_docker_services.py'
       - '.github/workflows/docker-publish.yml'
   pull_request:
     paths:
       - 'Dockerfile'
       - '.dockerignore'
       - 'reborn/server/**'
+      - 'compose*.yaml'
+      - 'scripts/select_docker_services.py'
       - '.github/workflows/docker-publish.yml'
   workflow_dispatch:
+    inputs:
+      service:
+        description: 'Image to build (auto follows service branch; all rebuilds everything)'
+        required: true
+        default: auto
+        type: choice
+        options: [auto, game-server, account-api, staff, cluster-api, cluster-agent, all]
 
 permissions:
   contents: read
 
 concurrency:
-  group: service-build-${{ github.ref }}
+  group: image-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Select affected service images
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      count: ${{ steps.select.outputs.count }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Determine affected images
+        id: select
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MANUAL_SERVICE: ${{ inputs.service || 'auto' }}
+        run: |
+          set -euo pipefail
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            BASE_SHA="$PR_BASE_SHA"
+          elif [[ "$EVENT_NAME" == "push" && -n "$BEFORE_SHA" && ! "$BEFORE_SHA" =~ ^0+$ ]]; then
+            BASE_SHA="$BEFORE_SHA"
+          else
+            BASE_SHA="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+          fi
+
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "Base not found: selecting all to avoid missing dependent images."
+            MATRIX='{"service":["game-server","account-api","staff","cluster-api","cluster-agent"]}'
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" && "$MANUAL_SERVICE" == "auto" && "$REF_NAME" == "main" ]]; then
+            MATRIX='{"service":["game-server","account-api","staff","cluster-api","cluster-agent"]}'
+          else
+            MATRIX="$(python3 scripts/select_docker_services.py "$BASE_SHA" "$HEAD_SHA" "$EVENT_NAME" "$REF_NAME" "$MANUAL_SERVICE")"
+          fi
+          echo "Selected image matrix: $MATRIX"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          COUNT="$(python3 -c 'import json,sys; print(len(json.loads(sys.argv[1])["service"]))' "$MATRIX")"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
   images:
-    name: "${{ matrix.service }} (amd64 / arm64)"
+    name: ${{ matrix.service }} (linux/amd64, linux/arm64)
+    needs: changes
+    if: needs.changes.outputs.count != '0'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
-      matrix:
-        service: [game-server, account-api, staff, cluster-api, cluster-agent]
+      matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v6
-      - name: Set lower-case image path
+      - name: Set lowercase image name
         shell: bash
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}/${{ matrix.service }}" >> "$GITHUB_ENV"
       - name: Docker metadata
@@ -46,24 +100,23 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=ref,event=branch,prefix=branch-,enable=${{ github.ref != 'refs/heads/main' && github.event_name != 'pull_request' }}
-            type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+            type=ref,event=branch,prefix=branch-,enable=${{ github.event_name != 'pull_request' && github.ref != 'refs/heads/main' }}
             type=sha,prefix=sha-,format=short
           labels: |
-            org.opencontainers.image.description=Creative Destruction Reborn ${{ matrix.service }} development service
+            org.opencontainers.image.description=Creative Destruction Reborn ${{ matrix.service }} (development)
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
-      - name: GHCR login
+      - name: Authenticate GHCR
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and optionally publish
+      - name: Build only selected target; publish branch images immediately
         uses: docker/build-push-action@v7
         with:
           context: .
