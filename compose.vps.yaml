@@ -26,6 +26,27 @@ services:
     cap_drop: [ALL]
     pids_limit: 128
     mem_limit: 512m
+  account-api:
+    build: .
+    command: ["python", "account_api.py"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      CDR_AUTH_BIND: 0.0.0.0
+      CDR_AUTH_ALLOW_CONTAINER: "1"
+      CDR_AUTH_PORT: "8090"
+      CDR_ACCOUNT_DB: /app/reborn/server/save/accounts.sqlite3
+      CDR_REGISTRATION_KEY: ${CDR_REGISTRATION_KEY:?Set a strong registration secret in .env}
+    ports:
+      - "127.0.0.1:8090:8090/tcp"
+    volumes:
+      - cdr_save:/app/reborn/server/save
+    tmpfs: ["/tmp:size=16m,noexec,nosuid,nodev"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    pids_limit: 64
+    mem_limit: 256m
   staff:
     build: .
     command: ["python", "staff_dashboard.py"]
