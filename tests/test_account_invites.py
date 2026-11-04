@@ -73,6 +73,20 @@ class AccountInvitationTests(unittest.TestCase):
                 "invite_code": invite["invite_code"]})
             self.assertEqual(status, 400)
 
+    def test_public_registration_requires_explicit_opt_in(self):
+        body = {"username": "PublicPlayer", "password": "strong-password-123"}
+        with patch.object(account_api, "PUBLIC_REGISTRATION", False):
+            status, response = self.request("/v1/register", body)
+            self.assertEqual(status, 403)
+            self.assertEqual(response["error"], "registration_requires_invitation")
+        with patch.object(account_api, "PUBLIC_REGISTRATION", True):
+            status, response = self.request("/v1/register", body)
+            self.assertEqual(status, 201)
+            self.assertEqual(response["account"]["username"], "PublicPlayer")
+            status, response = self.request("/v1/login", body)
+            self.assertEqual(status, 200)
+            self.assertIn("token", response)
+
 
 if __name__ == "__main__":
     unittest.main()
