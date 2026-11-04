@@ -1748,6 +1748,13 @@ def client_loop(conn, on_connect):
             name, cmd, sub, data = PROTO.decode(body, "C")
             if name not in QUIET_MESSAGES:
                 log("[%s] <- %s (%d,%d) %s" % (conn.kind, name or "?", cmd, sub, short(data)))
+            # Legacy offline handlers mutate global SAVE/GATE/FIGHT_STATE. A remote
+            # login socket must never dispatch arbitrary handler names (for
+            # example C_LOGIN_CREATE) to bypass C_LOGIN_AUTH's rejection.
+            if HOST not in ("127.0.0.1", "::1") and conn.kind == "login" and name != "C_LOGIN_AUTH":
+                log("[login] blocked unauthenticated remote command %s" % (name or "?"))
+                conn.alive = False
+                break
             fn = HANDLERS.get(name)
             if fn:
                 try:
