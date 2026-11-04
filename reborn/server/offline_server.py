@@ -1843,14 +1843,22 @@ def client_loop(conn, on_connect):
         for body in conn.messages():
             name, cmd, sub, data = PROTO.decode(body, "C")
             if name not in QUIET_MESSAGES:
-                log("[%s] <- %s (%d,%d) %s" % (conn.kind, name or "?", cmd, sub, short(data)))
-            # Legacy offline handlers mutate global SAVE/GATE/FIGHT_STATE. A remote
-            # login socket must never dispatch arbitrary handler names (for
-            # example C_LOGIN_CREATE) to bypass C_LOGIN_AUTH's rejection.
-            if HOST not in ("127.0.0.1", "::1") and conn.kind == "login" and name != "C_LOGIN_AUTH":
-                log("[login] blocked unauthenticated remote command %s" % (name or "?"))
-                conn.alive = False
-                break
+                log("[%s] <- %s (%d,%d) %s" %
+                    (conn.kind, name or "?", cmd, sub, short(redact_wire(data))))
+            # No remotely reachable legacy handler may mutate a player's data
+            # before the corresponding session ticket has been redeemed.
+            if HOST != "127.0.0.1":
+                if conn.kind == "login" and name != "C_LOGIN_AUTH":
+                    conn.alive = False
+                    break
+                if conn.kind == "gate" and not getattr(conn, "session_id", None):
+                    if name not in ("C_LOGIN_ENTER", "C_LOGIN_CREATE", "C_LOGIN_RAND_NAME"):
+                        conn.alive = False
+                        break
+                if conn.kind == "battle" and not getattr(conn, "session_id", None):
+                    if name not in ("C_FIGHT_LOGIN", "C_FIGHT_REQ_LOGIN"):
+                        conn.alive = False
+                        break
             fn = HANDLERS.get(name)
             if fn:
                 try:
@@ -1858,7 +1866,7 @@ def client_loop(conn, on_connect):
                 except Exception:
                     log("handler %s failed\n%s" % (name, traceback.format_exc()))
             elif name not in QUIET_MESSAGES:
-                log("%s (%d,%d) %s" % (name or "?", cmd, sub, short(data, 600)), "unhandled.log")
+                log("%s (%d,%d) %s" % (name or "?", cmd, sub, short(redact_wire(data), 600)), "unhandled.log")
             if not conn.alive:
                 break
     except (ConnectionError, OSError, ValueError, struct.error) as e:
@@ -1867,6 +1875,10 @@ def client_loop(conn, on_connect):
         log("[%s] unexpected failure\n%s" % (conn.kind, traceback.format_exc()))
     finally:
         conn.alive = False
+        if MULTIUSER and conn.kind == "gate" and getattr(conn, "session_id", None):
+            session = conn.session_id
+            IDENTITY.leave(conn)
+            STATES.detach(session)
         conn.sock.close()
         CLIENT_SLOTS.release()
         log("[%s] disconnect %s" % (conn.kind, conn.addr))
