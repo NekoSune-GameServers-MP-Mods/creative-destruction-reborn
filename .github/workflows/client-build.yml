@@ -8,6 +8,7 @@ on:
       - 'reborn/client-config.json'
       - 'reborn/tools/steam_bridge.py'
       - 'reborn/tools/steam_launcher.py'
+      - 'reborn/tools/steam_gui.py'
       - 'reborn/tools/steam_register.py'
       - 'reborn/tools/patch_server.py'
       - 'reborn/tools/install.py'
@@ -39,6 +40,15 @@ jobs:
         run: |
           python -m unittest discover -s tests -p "test_client_launcher.py" -v
           python -m unittest discover -s tests -p "test_steam_bridge.py" -v
+      - name: Install GUI packager
+        shell: pwsh
+        run: python -m pip install --disable-pip-version-check "pyinstaller>=6.10,<7"
+      - name: Build standalone GUI executable (Windows)
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --windowed --onedir --name RebornLauncher --paths reborn/tools --paths reborn/server --add-data "reborn/server/data/protocol.json;reborn/server/data" reborn/tools/steam_gui.py
+          if (!(Test-Path "dist/RebornLauncher/RebornLauncher.exe")) { throw "GUI executable not produced" }
+          & "dist/RebornLauncher/RebornLauncher.exe" --version
       - name: Create client-only zip (no official game binaries or passwords)
         shell: pwsh
         run: |
@@ -46,10 +56,13 @@ jobs:
           New-Item -ItemType Directory -Force "$out/reborn/tools", "$out/reborn/server/data", "$out/reborn/client_mod" | Out-Null
           Copy-Item "Play Private Server.bat" "$out/"
           Copy-Item "reborn/client-config.json" "$out/reborn/"
-          Copy-Item "reborn/tools/steam_bridge.py", "reborn/tools/steam_launcher.py", "reborn/tools/steam_register.py", "reborn/tools/patch_server.py", "reborn/tools/install.py" "$out/reborn/tools/"
+          Copy-Item "reborn/tools/steam_bridge.py", "reborn/tools/steam_launcher.py", "reborn/tools/steam_gui.py", "reborn/tools/steam_register.py", "reborn/tools/patch_server.py", "reborn/tools/install.py" "$out/reborn/tools/"
           Copy-Item "reborn/server/nexproto.py" "$out/reborn/server/"
           Copy-Item "reborn/server/data/protocol.json" "$out/reborn/server/data/"
           Copy-Item "reborn/client_mod/*" "$out/reborn/client_mod/" -Recurse -Force
+          Copy-Item "dist/RebornLauncher/*" "$out/" -Recurse -Force
+          if (!(Test-Path "$out/RebornLauncher.exe")) { throw "Missing GUI EXE" }
+          if (!(Test-Path "$out/_internal/reborn/server/data/protocol.json")) { throw "Missing bundled protocol tables" }
           Compress-Archive -Path "$out/*" -DestinationPath "dist/Creative-Destruction-Reborn-Client.zip" -Force
       - uses: actions/upload-artifact@v4
         with:
