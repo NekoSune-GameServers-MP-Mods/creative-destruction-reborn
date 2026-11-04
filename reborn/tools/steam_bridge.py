@@ -208,6 +208,31 @@ def discovery_handler(host):
     return Handler
 
 
+def validate_game_host(value):
+    """Accept a DNS-only game hostname or a public/VPN IPv4, never a URL."""
+    import re
+    if not isinstance(value, str):
+        raise ValueError("Game host must be a DNS hostname or IPv4")
+    value = value.strip().rstrip(".").lower()
+    if not value or len(value) > 253 or ":" in value or "/" in value or "@" in value:
+        raise ValueError("Invalid game host")
+    try:
+        ip = ipaddress.IPv4Address(value)
+        if ip.is_loopback or ip.is_unspecified or ip.is_multicast:
+            raise ValueError("Invalid game server IP")
+        return str(ip)
+    except ipaddress.AddressValueError:
+        pass
+    labels = value.split(".")
+    if len(labels) < 2 or any(
+        not 1 <= len(label) <= 63 or
+        not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label)
+        for label in labels
+    ):
+        raise ValueError("Invalid DNS game hostname")
+    return value
+
+
 def run(host, account, tls_hostname):
     servers = []
     try:
@@ -231,17 +256,17 @@ def run(host, account, tls_hostname):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--game-server", required=True, help="VPS public or VPN IPv4")
+    parser.add_argument("--game-server", required=True, help="VPS DNS hostname or IPv4 address")
     parser.add_argument("--auth-url", required=True, help="HTTPS Reborn account API")
     parser.add_argument("--username", required=True, help="Your Reborn account username")
     parser.add_argument("--game-tls-hostname", required=True,
                         help="DNS name on the VPS game TLS certificate (verified)")
     args = parser.parse_args()
-    host = str(ipaddress.IPv4Address(args.game_server))
+    host = validate_game_host(args.game_server)
     tls_name = args.game_tls_hostname.strip()
     if not tls_name or len(tls_name) > 253 or "://" in tls_name or "/" in tls_name:
         parser.error("Invalid TLS hostname")
-    if ipaddress.IPv4Address(host).is_loopback or ipaddress.IPv4Address(host).is_unspecified:
+    if host in ("localhost", "127.0.0.1", "0.0.0.0"):
         parser.error("VPS address must not be localhost")
     try:
         password = getpass.getpass("Reborn account password: ")
