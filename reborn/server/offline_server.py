@@ -430,7 +430,7 @@ def on_start_match(conn, msg):
     team_mode = (queues[0].get("team_modes") or [1])[0]
     FIGHT_STATE.update({"game_mode": game_mode, "team_mode": team_mode})
     conn.send("S_GAME_MATCH_SUCCESS", {"game_mode": game_mode, "team_mode": team_mode})
-    conn.send("S_GAME_SWITCH_TO_BATTLE", {"ip": HOST, "port": BATTLE_KCP_PORT, "login_key": "offline_battle",
+    conn.send("S_GAME_SWITCH_TO_BATTLE", {"ip": ADVERTISE_HOST, "port": BATTLE_KCP_PORT, "login_key": "offline_battle",
                                           "tcp_port": BATTLE_PORT})
 
 
