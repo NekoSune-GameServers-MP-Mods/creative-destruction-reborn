@@ -125,8 +125,8 @@ class Connection:
                 raise ValueError("Receive buffer limit exceeded")
             while len(self.buf) >= 2:
                 total = struct.unpack_from("<H", self.buf)[0]
-                if total < 2:
-                    raise ValueError("Invalid frame length")
+                if total < 5:
+                    raise ValueError("Invalid network frame: missing command/subcommand")
                 if len(self.buf) < total:
                     break
                 body, self.buf = self.buf[2:total], self.buf[total:]
