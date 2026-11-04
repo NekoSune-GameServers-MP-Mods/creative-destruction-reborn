@@ -186,20 +186,32 @@ def send_seed(conn):
 
 
 # ------------------------------------------------------------------ login server
+def reject_login(conn, message):
+    conn.send("S_LOGIN_AUTH", {
+        "err_code": 1, "err_msg": message,
+        "warn_msg": "", "unisdk_login_json": "", "auth_hostid": 0,
+        "auth_sn": "", "zone_list": [], "origin_account": "",
+        "aid": 0, "sdk_username": "",
+    })
+    conn.alive = False
+
+
 @handler("C_LOGIN_AUTH")
 def on_login_auth(conn, msg):
-    # The original offline simulation has only one global player state and static
-    # tickets. Remote clients MUST NOT be granted a fake authenticated identity.
+    auth_sn = "offline_sn"
     if HOST != "127.0.0.1":
-        conn.send("S_LOGIN_AUTH", {
-            "err_code": 1,
-            "err_msg": "Remote multiplayer logins disabled until per-player session isolation is implemented",
-            "warn_msg": "", "unisdk_login_json": "", "auth_hostid": 0,
-            "auth_sn": "", "zone_list": [], "origin_account": "",
-            "aid": 0, "sdk_username": "",
-        })
-        conn.alive = False
-        return
+        if not MULTIUSER:
+            reject_login(conn, "Authenticated multiplayer is not enabled")
+            return
+        verified = IDENTITY.authenticate(msg.get("sauth_json"))
+        if verified is None:
+            reject_login(conn, "Reborn account ticket missing, expired or already used")
+            return
+        conn.session_id = verified["session_id"]
+        STATES.attach(conn.session_id, verified["account_id"], verified["username"])
+        CURRENT_SESSION.set(conn.session_id)
+        auth_sn = verified["auth_sn"]
+        log("[login] verified account %d; gateway handoff issued" % verified["account_id"])
     has_role = bool(SAVE.get("name"))
     zone = {"zone_id": ZONE_ID, "gate_hostid": 1, "gate_ip": ADVERTISE_HOST, "gate_port": GATE_PORT,
             "role_uid": SAVE["uid"] if has_role else 0}
@@ -207,7 +219,7 @@ def on_login_auth(conn, msg):
         zone["role_info"] = {"name": SAVE["name"], "level": 1}
     conn.send("S_LOGIN_AUTH", {
         "err_code": 0, "err_msg": "", "warn_msg": "", "unisdk_login_json": "",
-        "auth_hostid": 1, "auth_sn": "offline_sn", "zone_list": [zone],
+        "auth_hostid": 1, "auth_sn": auth_sn, "zone_list": [zone],
         "origin_account": "offline", "aid": SAVE["aid"], "sdk_username": "offline",
     })
 
@@ -219,11 +231,11 @@ if MULTIUSER:
 
 
 def gate_on_connect(conn):
-    if HOST != "127.0.0.1":
+    if HOST != "127.0.0.1" and not MULTIUSER:
         conn.alive = False
-        conn.sock.close()
         return
-    GATE["conn"] = conn
+    if HOST == "127.0.0.1":
+        GATE["conn"] = conn
     send_seed(conn)
     now = int(time.time())
     conn.send("S_LOGIN_GATE_PREPARE", {"is_test_branch": 0, "timestamp": now, "timezone": 0})
@@ -241,8 +253,24 @@ def enter_game(conn):
     send_rename_count(conn)
 
 
+def verify_gateway(conn, msg):
+    if not MULTIUSER:
+        return True
+    if getattr(conn, "session_id", None) is not None:
+        return True
+    snapshot = IDENTITY.gate(msg.get("auth_sn"), conn)
+    if snapshot is None:
+        conn.alive = False
+        return False
+    CURRENT_SESSION.set(conn.session_id)
+    GATE["conn"] = conn
+    return True
+
+
 @handler("C_LOGIN_CREATE")
 def on_login_create(conn, msg):
+    if not verify_gateway(conn, msg):
+        return
     name = msg.get("name", b"").decode("utf-8", "replace") or "Joueur"
     SAVE["name"] = name
     SAVE["gender"] = msg.get("gender", 1) or 1
@@ -253,6 +281,11 @@ def on_login_create(conn, msg):
 
 @handler("C_LOGIN_ENTER")
 def on_login_enter(conn, msg):
+    if not verify_gateway(conn, msg):
+        return
+    if MULTIUSER and msg.get("uid", 0) not in (0, SAVE["uid"]):
+        conn.alive = False
+        return
     enter_game(conn)
 
 
@@ -482,19 +515,31 @@ if MULTIUSER:
 
 @handler("C_GAME_START_MATCH2")
 def on_start_match(conn, msg):
+    if MULTIUSER and not getattr(conn, "session_id", None):
+        conn.alive = False
+        return
     queues = msg.get("match_queues") or [{"game_mode": 16, "team_modes": [1]}]
     game_mode = queues[0].get("game_mode", 16)
     team_mode = (queues[0].get("team_modes") or [1])[0]
     FIGHT_STATE.update({"game_mode": game_mode, "team_mode": team_mode})
     conn.send("S_GAME_MATCH_SUCCESS", {"game_mode": game_mode, "team_mode": team_mode})
-    conn.send("S_GAME_SWITCH_TO_BATTLE", {"ip": ADVERTISE_HOST, "port": BATTLE_KCP_PORT, "login_key": "offline_battle",
-                                          "tcp_port": BATTLE_PORT})
+    login_key = "offline_battle"
+    if MULTIUSER:
+        try:
+            # One isolated match per authenticated player until cross-player
+            # replication has been implemented and validated.
+            login_key = IDENTITY.start_match(conn, "solo-%d" % SAVE["aid"])
+        except Exception:
+            log("[gate] authenticated player could not allocate battle session")
+            conn.alive = False
+            return
+    conn.send("S_GAME_SWITCH_TO_BATTLE", {"ip": ADVERTISE_HOST, "port": BATTLE_KCP_PORT,
+                                          "login_key": login_key, "tcp_port": BATTLE_PORT})
 
 
 def battle_on_connect(conn):
-    if HOST != "127.0.0.1":
+    if HOST != "127.0.0.1" and not MULTIUSER:
         conn.alive = False
-        conn.sock.close()
         return
     conn.send("S_SYS_BATTLE_ENCRYPT_SEED", {"need_encrypt": 0, "in_seed": 0, "out_seed": 0, "need_handshake": 0})
 
@@ -505,6 +550,15 @@ PLAYER_UNIT_ID = 1000  # localhost legacy mode only
 @handler("C_FIGHT_REQ_LOGIN")
 @handler("C_FIGHT_LOGIN")
 def on_fight_login(conn, msg):
+    if MULTIUSER and getattr(conn, "session_id", None) is None:
+        snapshot = IDENTITY.battle(msg.get("key") or msg.get("login_key"), conn)
+        if snapshot is None:
+            conn.alive = False
+            return
+        CURRENT_SESSION.set(conn.session_id)
+    if MULTIUSER and msg.get("uid") != SAVE["uid"]:
+        conn.alive = False
+        return
     FIGHT_STATE["fight_id"] += 1
     battle_id = DEFAULT_BATTLE_ID
     spawn = SAVE.get("debug_spawn", [0.0, 3000.0, 0.0])
