@@ -60,6 +60,7 @@ services:
       CDR_AUTH_PORT: "8090"
       CDR_ACCOUNT_DB: /app/reborn/server/save/accounts.sqlite3
       CDR_REGISTRATION_KEY: ${CDR_REGISTRATION_KEY:?Set a strong registration secret in .env}
+      CDR_PUBLIC_REGISTRATION: ${CDR_PUBLIC_REGISTRATION:-0}
     ports:
       - "127.0.0.1:${CDR_ACCOUNT_HOST_PORT:-8090}:8090/tcp"
     volumes:
