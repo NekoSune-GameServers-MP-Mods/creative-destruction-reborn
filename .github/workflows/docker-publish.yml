@@ -130,3 +130,4 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
           provenance: true
           sbom: true
+# This service branch publishes only cluster-agent:branch-cluster-agent.
