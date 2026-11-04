@@ -1,0 +1,9 @@
+# Opt-in single-user remote test overlay for one known public client IP.
+# This does NOT enable secure multi-user or publicly playable multiplayer.
+# Use with: docker compose -f compose.yaml -f compose.remote-lab.yaml up -d game-server
+services:
+  game-server:
+    environment:
+      CDR_REMOTE_SINGLE_PLAYER_TEST: "1"
+      CDR_REMOTE_TEST_IP: ${CDR_REMOTE_TEST_IP:?Set the one permitted Steam PC public IPv4}
+      CDR_REMOTE_TEST_CLIENT_VERSION: ${CDR_REMOTE_TEST_CLIENT_VERSION:-3.0.248.0}
