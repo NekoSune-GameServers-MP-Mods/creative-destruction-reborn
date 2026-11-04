@@ -11,6 +11,9 @@ DB_PATH = os.getenv("CDR_ACCOUNT_DB", os.path.join(os.path.dirname(__file__), "s
 HOST = os.getenv("CDR_AUTH_BIND", "127.0.0.1")
 PORT = int(os.getenv("CDR_AUTH_PORT", "8090"))
 REGISTER_KEY = os.getenv("CDR_REGISTRATION_KEY", "")
+# Explicit opt-in for communities that want self-service sign-up.
+# Keep this disabled unless the public HTTPS endpoint has edge rate limiting.
+PUBLIC_REGISTRATION = os.getenv("CDR_PUBLIC_REGISTRATION", "0") == "1"
 _RATE_LOCK = threading.Lock()
 _RATE_BUCKETS = {}
 MAX_ATTEMPTS = 6
@@ -110,7 +113,7 @@ def handler_factory(store):
                         account = store.register_with_invite(
                             data.get("username"), data.get("password"), invite)
                     else:
-                        if len(REGISTER_KEY) < 32 or not hmac.compare_digest(submitted, REGISTER_KEY):
+                        if not PUBLIC_REGISTRATION and (len(REGISTER_KEY) < 32 or not hmac.compare_digest(submitted, REGISTER_KEY)):
                             return self.reply(403, {"error": "registration_requires_invitation"})
                         account = store.register(data.get("username"), data.get("password"))
                     return self.reply(201, {"account": account})
