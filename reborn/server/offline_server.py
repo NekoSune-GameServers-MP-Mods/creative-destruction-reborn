@@ -8,6 +8,7 @@ Ports (127.0.0.1):
 Every message is logged to server/logs/server.log; messages without a handler are
 listed in server/logs/unhandled.log so they can be implemented next.
 """
+import contextvars
 import datetime
 import http.server
 import itertools
@@ -26,6 +27,8 @@ import loot
 from nexproto import Protocol
 from server_config import listener_host, connection_limit, advertised_host
 from i18n import tr
+from game_identity import GameIdentity
+from player_state import GameStates, ContextMapping, CURRENT_SESSION
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -38,6 +41,10 @@ os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
 HOST = listener_host()
 ADVERTISE_HOST = advertised_host()
 CLIENT_SLOTS = threading.BoundedSemaphore(connection_limit())
+MULTIUSER = HOST != "127.0.0.1" and os.getenv("CDR_MULTIUSER_ENABLED", "0") == "1"
+IDENTITY = None
+STATES = None
+
 HTTP_PORT, LOGIN_PORT, GATE_PORT = 8000, 4000, 4001
 ZONE_ID = 1
 
@@ -58,6 +65,22 @@ def log(msg, file="server.log", console=False):
                 pass
         with open(os.path.join(LOG_DIR, file), "a", encoding="utf-8") as f:
             f.write(line + "\n")
+
+
+def redact_wire(data):
+    if not isinstance(data, dict):
+        return data
+    hidden = {"sauth_json", "auth_sn", "login_key", "key", "device_id",
+              "udid", "ip_info", "session", "token", "basic_info"}
+    return {k: "[REDACTED]" if k in hidden else v for k, v in data.items()}
+
+
+def spawn_session_thread(fn, *args):
+    """Propagate a player session into background battle workers."""
+    ctx = contextvars.copy_context()
+    thread = threading.Thread(target=lambda: ctx.run(fn, *args), daemon=True)
+    thread.start()
+    return thread
 
 
 def short(v, n=300):
@@ -81,11 +104,25 @@ def load_save():
 
 
 def write_save(data):
+    if MULTIUSER and CURRENT_SESSION.get() is not None:
+        STATES.save_current()
+        return
     with open(SAVE_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=1, ensure_ascii=False)
 
 
 SAVE = load_save()
+if MULTIUSER:
+    DB_PATH = os.getenv("CDR_ACCOUNT_DB", os.path.join(HERE, "save", "accounts.sqlite3"))
+    IDENTITY = GameIdentity(DB_PATH)
+    STATES = GameStates(DB_PATH, SAVE)
+    SAVE = ContextMapping(STATES, "save", SAVE)
+
+def current_unit_id():
+    if MULTIUSER and CURRENT_SESSION.get() is not None:
+        return SAVE["uid"]
+    return 1000
+
 
 
 # ------------------------------------------------------------------ connection
@@ -112,7 +149,7 @@ class Connection:
 
     def send(self, name, data=None):
         self.sock.sendall(PROTO.encode(name, data or {}))
-        log("[%s] -> %s %s" % (self.kind, name, short(data or {})))
+        log("[%s] -> %s %s" % (self.kind, name, short(redact_wire(data or {}))))
 
     def messages(self):
         while True:
@@ -176,7 +213,9 @@ def on_login_auth(conn, msg):
 
 
 # ------------------------------------------------------------------ gate / game server
-GATE = {"conn": None}  # the lobby connection stays open during a match: the mod answers queries on it
+GATE = {"conn": None}  # lobby socket for this player's match
+if MULTIUSER:
+    GATE = ContextMapping(STATES, "gate", GATE)
 
 
 def gate_on_connect(conn):
@@ -437,6 +476,8 @@ BATTLE_KCP_PORT = 4003      # advertised but unused
 DEFAULT_BATTLE_ID = 1016    # ca/info_battle_battle: å…¨æ–°å¯æ˜Žæ˜Ÿä¹‹è°· (main map, scene upgrade_4096)
 BATTLE_SCENES = {1013: "bc", 1016: "upgrade_4096", 1018: "upgrade_4096", 1019: "cxd", 1020: "cxd_new"}
 FIGHT_STATE = {"fight_id": 0}
+if MULTIUSER:
+    FIGHT_STATE = ContextMapping(STATES, "fight", FIGHT_STATE)
 
 
 @handler("C_GAME_START_MATCH2")
@@ -458,7 +499,7 @@ def battle_on_connect(conn):
     conn.send("S_SYS_BATTLE_ENCRYPT_SEED", {"need_encrypt": 0, "in_seed": 0, "out_seed": 0, "need_handshake": 0})
 
 
-PLAYER_UNIT_ID = 1000
+PLAYER_UNIT_ID = 1000  # localhost legacy mode only
 
 
 @handler("C_FIGHT_REQ_LOGIN")
@@ -468,7 +509,7 @@ def on_fight_login(conn, msg):
     battle_id = DEFAULT_BATTLE_ID
     spawn = SAVE.get("debug_spawn", [0.0, 3000.0, 0.0])
     conn.send("S_FIGHT_JOIN_FIGHT", {
-        "fight_id": FIGHT_STATE["fight_id"], "unit_id": PLAYER_UNIT_ID, "frame_idx": 0,
+        "fight_id": FIGHT_STATE["fight_id"], "unit_id": current_unit_id(), "frame_idx": 0,
         "battle_id": battle_id, "scene_name": BATTLE_SCENES[battle_id],
         "x": spawn[0], "y": spawn[1], "z": spawn[2],
         "mode": FIGHT_STATE.get("game_mode", 16), "is_relogin": 0, "fight_type": FIGHT_TYPE_MATCH,
@@ -531,7 +572,7 @@ def battle_start_prepare(conn):
     spawn = SAVE.get("debug_spawn", PRE_LOBBY_SPAWN)
     conn.send("S_FIGHT_STATE_INFO", {"stage": STAGE_PREPARE, "start_stage_time": int(now)})
     send_frame(conn, [("S_FIGHT_PLAYER_INIT", {
-        "unit_id": PLAYER_UNIT_ID,
+        "unit_id": current_unit_id(),
         "move_info": {"pos_x": spawn[0], "pos_y": spawn[1], "pos_z": spawn[2],
                       "pos_ts_sec": int(now), "pos_ts_ms": int((now % 1) * 1000), "move_dir": 0.0,
                       "parachute_state": 0},
@@ -547,15 +588,17 @@ def battle_start_prepare(conn):
     conn.player_pos = None
     conn.loot, conn.inv = loot.Loot(), loot.Inventory()
     conn.ground = bots.GroundMap()
-    threading.Thread(target=loot_brain, args=(conn,), daemon=True).start()
-    threading.Thread(target=ground_mapper, args=(conn,), daemon=True).start()
+    spawn_session_thread(loot_brain, conn)
+    spawn_session_thread(ground_mapper, conn)
     conn.bots = bots.make_bots(SAVE.get("bot_count", 0), WARDROBE, SAVE["name"])
     if conn.bots:
         log("%d bots in this match" % len(conn.bots), console=True)
-        threading.Thread(target=bot_brain, args=(conn,), daemon=True).start()
+        spawn_session_thread(bot_brain, conn)
 
 
 ACTIVE_BATTLE = {"conn": None}
+if MULTIUSER:
+    ACTIVE_BATTLE = ContextMapping(STATES, "active", ACTIVE_BATTLE)
 
 
 AIR_STATE_FREE_DROP = 1
@@ -646,7 +689,7 @@ def on_start_parachute(conn, msg):
     conn.jumped = True
     sec, ms = ts(time.time())
     conn.send("S_FIGHT_START_PARACHUTE", {
-        "player_unit_id": PLAYER_UNIT_ID, "renter": 0, "type": msg.get("type", 0), "state": AIR_STATE_FREE_DROP,
+        "player_unit_id": current_unit_id(), "renter": 0, "type": msg.get("type", 0), "state": AIR_STATE_FREE_DROP,
         "action": 0, "pos_x": pos[0], "pos_y": pos[1], "pos_z": pos[2], "time_ts": sec, "time_ms": ms})
 
 
@@ -664,8 +707,8 @@ def on_end_parachute(conn, msg):
     # ...and put it back in hand: the weapon bar keeps the pickaxe "selected" from the pre-lobby,
     # so key 1 does nothing until the server sets using_weapon_slot again.
     send_frame(conn, [
-        ("S_FIGHT_UPDATE_EQUIP", {"player_unit_id": PLAYER_UNIT_ID, "info": hoe_equip()}),
-        ("S_FIGHT_PLAYER_UPDATE", {"unit_id": PLAYER_UNIT_ID, "move_info": {},
+        ("S_FIGHT_UPDATE_EQUIP", {"player_unit_id": current_unit_id(), "info": hoe_equip()}),
+        ("S_FIGHT_PLAYER_UPDATE", {"unit_id": current_unit_id(), "move_info": {},
                                    "avatar_basic": {"using_weapon_slot": EQUIP_SLOT_WEAPON_0}}),
     ])
 
@@ -685,9 +728,9 @@ def cmd_start(args):
     start_at = time.time() + PREPARE_SECONDS
     new_airline_route()
     conn.send("S_FIGHT_WAIT_BEFORE_START", {"start_time": int(start_at)})
-    threading.Thread(target=run_match_timeline, args=(conn, start_at), daemon=True).start()
+    spawn_session_thread(run_match_timeline, conn, start_at)
     if conn.bots:
-        threading.Thread(target=plan_bot_landings, args=(conn,), daemon=True).start()
+        spawn_session_thread(plan_bot_landings, conn)
     return "Countdown started: the match begins in %d s." % PREPARE_SECONDS
 
 
@@ -858,7 +901,7 @@ def give_material(conn, mat, amount, pos):
     conn.sock.sendall(PROTO.encode("S_FIGHT_ADD_BAG_ITEM" if is_new else "S_FIGHT_UPDATE_BAG_ITEM",
                                    info if is_new else {"info": info}))
     conn.sock.sendall(PROTO.encode("S_FIGHT_GAIN_MATERIAL", {
-        "player_unit_id": PLAYER_UNIT_ID, "mat_id": mat, "mat_num": amount, "pos": list(pos)}))
+        "player_unit_id": current_unit_id(), "mat_id": mat, "mat_num": amount, "pos": list(pos)}))
 
 
 def on_destruct_hit(text):
@@ -877,7 +920,7 @@ def on_destruct_hit(text):
     conn.sock.sendall(PROTO.encode("S_FIGHT_INFORM_DT_UNIT_DAMAGE", {
         "grid_id": grid, "model_id": gid, "view_grid_id": "", "max_hp": max_hp, "hp": hp,
         "hit_info": {"hit_x": x, "hit_y": y, "hit_z": z, "shock_x": dx, "shock_y": dy, "shock_z": dz,
-                     "from_player_unit_id": PLAYER_UNIT_ID, "from_equip_item_id": HOE_ITEM_ID, "appearance": 0}}))
+                     "from_player_unit_id": current_unit_id(), "from_equip_item_id": HOE_ITEM_ID, "appearance": 0}}))
     give_material(conn, COMMON_MATERIAL, MATERIAL_PER_HIT + (MATERIAL_ON_DESTROY if hp == 0 else 0), (x, y, z))
     if hp == 0:
         conn.sock.sendall(PROTO.encode("S_FIGHT_INFORM_RELATED_DESTROY", {
@@ -936,7 +979,7 @@ def on_pick_item(conn, msg):
             conn.send("S_FIGHT_PICK_ITEM_RESULT", {"unit_id": uid, "succ": 0, "amount": 0, "item_id": item_id, "effect": 0})
             return
         w = conn.inv.weapons[slot]
-        send_frame(conn, [("S_FIGHT_UPDATE_EQUIP", {"player_unit_id": PLAYER_UNIT_ID, "info": {
+        send_frame(conn, [("S_FIGHT_UPDATE_EQUIP", {"player_unit_id": current_unit_id(), "info": {
             "unit_id": w["uid"], "item_id": item_id, "amount": 1, "equip_slot": slot,
             "bullet_num": item["bullet_num"], "capacity": w["capacity"]}})])
     else:
@@ -993,7 +1036,7 @@ def on_create_struct(conn, msg):
             "level": info.get("level", 1), "unit_id": conn.next_struct, "max_hp": STRUCT_HP, "hp": STRUCT_HP,
             "id_x": info.get("id_x", 0), "id_y": info.get("id_y", 0), "id_z": info.get("id_z", 0),
             "angle": info.get("angle", 0.0), "painting_id": info.get("painting_id", 0), "build_finish": 1,
-            "structure_style": info.get("structure_style", 0), "player_unit_id": PLAYER_UNIT_ID, "color": 0}})
+            "structure_style": info.get("structure_style", 0), "player_unit_id": current_unit_id(), "color": 0}})
     if results:
         conn.send("S_FIGHT_CREATE_STRUCT_RESULT", {"result": results})
 
@@ -1023,7 +1066,7 @@ def on_open_treasure(conn, msg):
 def open_chest(conn, uid, chest):
     x, y, z = chest["pos"]
     new = conn.loot.burst_chest(uid)
-    conn.send("S_FIGHT_BURST_ITEMS", {"unit_id": PLAYER_UNIT_ID, "items": [
+    conn.send("S_FIGHT_BURST_ITEMS", {"unit_id": current_unit_id(), "items": [
         scene_item_msg(i, conn.loot.items[i], from_pos=(x, y + 20, z)) for i in new]})
 
 
@@ -1591,8 +1634,7 @@ def bot_brain_loop(conn):
                     def resolve(guessed=guessed):
                         if resolve_landings(guessed, rng, timeout=5.0):
                             conn.replan = [b for b in guessed if not b.landing_guess]
-                    resolver = threading.Thread(target=resolve, daemon=True)
-                    resolver.start()
+                    spawn_session_thread(resolve)
             for b in getattr(conn, "replan", None) or []:
                 msgs += bot_replan(b, now, rng)
             conn.replan = None
