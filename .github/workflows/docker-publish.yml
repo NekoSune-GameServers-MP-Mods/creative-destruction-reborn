@@ -47,7 +47,7 @@ jobs:
           images: ${{ env.IMAGE }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=branch-${{ github.ref_name }},enable=${{ github.ref_type == 'branch' && github.ref != 'refs/heads/main' && github.event_name != 'pull_request' }}
+            type=ref,event=branch,prefix=branch-,enable=${{ github.ref != 'refs/heads/main' && github.event_name != 'pull_request' }}
             type=ref,event=tag
             type=sha,prefix=sha-,format=short
           labels: |
