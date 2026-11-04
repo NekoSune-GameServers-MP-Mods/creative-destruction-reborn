@@ -2,6 +2,17 @@
 
 # 💥 Creative Destruction Reborn
 
+> **Authenticated remote Steam login (server branch):** A per-account, TLS-protected
+> VPS login bridge has been added, along with single-use game tickets, separate
+> player saves, and invite-based registration. Setup for your **existing**
+> `compose.yaml`, Windows Steam client, and independent branch images:
+> [Authenticated remote login instructions](docs/AUTHENTICATED-STEAM-REMOTE-LOGIN.md).
+>
+> **Status:** End-to-end NeoX protocol tests pass, including two concurrent account
+> logins. This is not a tested real-client public shared-world game yet: player
+> replication and authoritative combat remain to be implemented. Do not mistake
+> successful account login for completed battle royale multiplayer.
+
 **Rejoue à Creative Destruction PC, hors ligne, sur ton propre ordinateur.**<br>
 *Play Creative Destruction PC again, offline, on your own computer.*
 
