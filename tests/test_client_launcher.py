@@ -55,6 +55,12 @@ class LauncherConfigTests(unittest.TestCase):
                 self.assertNotIn("CF-Ray", safe)
                 self.assertNotIn("a555", safe)
 
+    def test_cloudflare_plaintext_block_is_actionable(self):
+        msg = friendly_error("Account API HTTP 403; Content-Type=text/plain; CF-Ray=test-MAN")
+        self.assertIn("Cloudflare", msg)
+        self.assertIn("Security Events", msg)
+        self.assertNotIn("test-MAN", msg)
+
     def test_valid_cloudflare_config(self):
         config = {
             "game_host": "game-cdr.nekosunevr.co.uk",
