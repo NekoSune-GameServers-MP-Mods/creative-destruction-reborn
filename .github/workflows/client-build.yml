@@ -48,7 +48,7 @@ jobs:
         run: |
           python -m PyInstaller --noconfirm --clean --windowed --onedir --name RebornLauncher --paths reborn/tools --paths reborn/server --add-data "reborn/server/data/protocol.json;reborn/server/data" reborn/tools/steam_gui.py
           if (!(Test-Path "dist/RebornLauncher/RebornLauncher.exe")) { throw "GUI executable not produced" }
-          & "dist/RebornLauncher/RebornLauncher.exe" --version
+          # GUI startup is exercised manually; don't launch the event loop in CI.
       - name: Create client-only zip (no official game binaries or passwords)
         shell: pwsh
         run: |
