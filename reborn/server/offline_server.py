@@ -151,6 +151,18 @@ def send_seed(conn):
 # ------------------------------------------------------------------ login server
 @handler("C_LOGIN_AUTH")
 def on_login_auth(conn, msg):
+    # The original offline simulation has only one global player state and static
+    # tickets. Remote clients MUST NOT be granted a fake authenticated identity.
+    if HOST != "127.0.0.1":
+        conn.send("S_LOGIN_AUTH", {
+            "err_code": 1,
+            "err_msg": "Remote multiplayer logins disabled until per-player session isolation is implemented",
+            "warn_msg": "", "unisdk_login_json": "", "auth_hostid": 0,
+            "auth_sn": "", "zone_list": [], "origin_account": "",
+            "aid": 0, "sdk_username": "",
+        })
+        conn.alive = False
+        return
     has_role = bool(SAVE.get("name"))
     zone = {"zone_id": ZONE_ID, "gate_hostid": 1, "gate_ip": ADVERTISE_HOST, "gate_port": GATE_PORT,
             "role_uid": SAVE["uid"] if has_role else 0}
@@ -168,6 +180,10 @@ GATE = {"conn": None}  # the lobby connection stays open during a match: the mod
 
 
 def gate_on_connect(conn):
+    if HOST != "127.0.0.1":
+        conn.alive = False
+        conn.sock.close()
+        return
     GATE["conn"] = conn
     send_seed(conn)
     now = int(time.time())
@@ -435,6 +451,10 @@ def on_start_match(conn, msg):
 
 
 def battle_on_connect(conn):
+    if HOST != "127.0.0.1":
+        conn.alive = False
+        conn.sock.close()
+        return
     conn.send("S_SYS_BATTLE_ENCRYPT_SEED", {"need_encrypt": 0, "in_seed": 0, "out_seed": 0, "need_handshake": 0})
 
 
@@ -1722,6 +1742,8 @@ def client_loop(conn, on_connect):
     try:
         if on_connect:
             on_connect(conn)
+        if not conn.alive:
+            return
         for body in conn.messages():
             name, cmd, sub, data = PROTO.decode(body, "C")
             if name not in QUIET_MESSAGES:
