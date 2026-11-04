@@ -54,6 +54,12 @@ class AccountStore:
                 created_at INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_game_login_expiry ON game_login_tickets(expires_at);
+            CREATE TABLE IF NOT EXISTS invitations (
+                invite_hash BLOB PRIMARY KEY,
+                expires_at INTEGER NOT NULL,
+                claimed_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+                claimed_at INTEGER NOT NULL DEFAULT 0
+            );
             """)
 
     @staticmethod
@@ -82,6 +88,42 @@ class AccountStore:
                     (username, salt, digest, int(time.time())))
             except sqlite3.IntegrityError:
                 raise AuthError("Username unavailable")
+            return {"id": cur.lastrowid, "username": username}
+
+    def create_invitation(self, lifetime_seconds=86400):
+        if type(lifetime_seconds) is not int or not 60 <= lifetime_seconds <= 604800:
+            raise ValueError("Invitation must expire within 1 minute to 7 days")
+        raw = secrets.token_urlsafe(32)
+        with self.lock, self.db:
+            self.db.execute(
+                "INSERT INTO invitations(invite_hash,expires_at) VALUES(?,?)",
+                (self.digest(raw), int(time.time()) + lifetime_seconds))
+        return {"invite_code": raw, "expires_at": int(time.time()) + lifetime_seconds}
+
+    def register_with_invite(self, username, password, invite):
+        if not isinstance(invite, str) or not 32 <= len(invite) <= 256 or not invite.isascii():
+            raise AuthError("Invitation invalid or expired")
+        if not isinstance(username, str) or not NAME_RE.fullmatch(username):
+            raise AuthError("Username must be 3-24 alphanumeric, underscore or hyphen characters")
+        self.check_password(password)
+        salt = os.urandom(16)
+        digest = self.password_hash(password, salt)
+        now = int(time.time())
+        with self.lock, self.db:
+            claimed = self.db.execute(
+                """UPDATE invitations SET claimed_at=? WHERE invite_hash=?
+                   AND expires_at>? AND claimed_at=0""",
+                (now, self.digest(invite), now))
+            if claimed.rowcount != 1:
+                raise AuthError("Invitation invalid or expired")
+            try:
+                cur = self.db.execute(
+                    "INSERT INTO accounts(username,salt,password_hash,created_at) VALUES(?,?,?,?)",
+                    (username, salt, digest, now))
+            except sqlite3.IntegrityError:
+                raise AuthError("Username unavailable")
+            self.db.execute("UPDATE invitations SET claimed_by=? WHERE invite_hash=?",
+                            (cur.lastrowid, self.digest(invite)))
             return {"id": cur.lastrowid, "username": username}
 
     def login(self, username, password):
