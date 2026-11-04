@@ -1771,8 +1771,14 @@ def client_loop(conn, on_connect):
 
 LOGINLIST = "1 %s %d\n" % (ADVERTISE_HOST, LOGIN_PORT)
 ZONELIST = "%d Offline pc 202001010000 1\n" % ZONE_ID
-HTTP_FILES = {"loginlist_rel_pc_na.txt": LOGINLIST, "loginlist.txt": LOGINLIST,
-              "client_zonelist_rel_pc_na.txt": ZONELIST, "client_zonelist.txt": ZONELIST}
+HTTP_FILES = {
+    "loginlist_rel_pc_na.txt": LOGINLIST,
+    "loginlist_rel_steam_na.txt": LOGINLIST,
+    "loginlist.txt": LOGINLIST,
+    "client_zonelist_rel_pc_na.txt": ZONELIST,
+    "client_zonelist_rel_steam_na.txt": ZONELIST,
+    "client_zonelist.txt": ZONELIST,
+}
 
 
 class HttpHandler(http.server.BaseHTTPRequestHandler):
