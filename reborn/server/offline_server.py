@@ -226,7 +226,7 @@ def enter_game(conn):
 
 @handler("C_LOGIN_CREATE")
 def on_login_create(conn, msg):
-    if HOST != "127.0.0.1" and not REMOTE_LAB.enter_gateway(conn, wire_str(msg.get("auth_sn"))):
+    if HOST != "127.0.0.1" and not getattr(conn, "lab_gateway", False) and not REMOTE_LAB.enter_gateway(conn, wire_str(msg.get("auth_sn"))):
         conn.alive = False
         return
     if HOST != "127.0.0.1":
@@ -499,7 +499,7 @@ PLAYER_UNIT_ID = 1000
 @handler("C_FIGHT_REQ_LOGIN")
 @handler("C_FIGHT_LOGIN")
 def on_fight_login(conn, msg):
-    if HOST != "127.0.0.1":
+    if HOST != "127.0.0.1" and not getattr(conn, "lab_battle", False):
         ticket = wire_str(msg.get("key") or msg.get("login_key"))
         if not REMOTE_LAB.enter_battle(conn, ticket):
             conn.alive = False
