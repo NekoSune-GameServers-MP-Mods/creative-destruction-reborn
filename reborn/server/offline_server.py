@@ -116,6 +116,7 @@ if MULTIUSER:
     DB_PATH = os.getenv("CDR_ACCOUNT_DB", os.path.join(HERE, "save", "accounts.sqlite3"))
     IDENTITY = GameIdentity(DB_PATH)
     STATES = GameStates(DB_PATH, SAVE)
+    IDENTITY.state_store = STATES
     SAVE = ContextMapping(STATES, "save", SAVE)
 
 def current_unit_id():
