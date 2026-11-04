@@ -2,6 +2,8 @@
 import hmac
 import json
 import os
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from accounts import AccountStore, AuthError
 
@@ -9,6 +11,29 @@ DB_PATH = os.getenv("CDR_ACCOUNT_DB", os.path.join(os.path.dirname(__file__), "s
 HOST = os.getenv("CDR_AUTH_BIND", "127.0.0.1")
 PORT = int(os.getenv("CDR_AUTH_PORT", "8090"))
 REGISTER_KEY = os.getenv("CDR_REGISTRATION_KEY", "")
+_RATE_LOCK = threading.Lock()
+_RATE_BUCKETS = {}
+MAX_ATTEMPTS = 6
+RATE_WINDOW = 300
+
+def allow_attempt(key):
+    now = time.monotonic()
+    with _RATE_LOCK:
+        if len(_RATE_BUCKETS) > 10000:
+            for k, data in list(_RATE_BUCKETS.items()):
+                if data[1] + RATE_WINDOW < now:
+                    del _RATE_BUCKETS[k]
+        count, first = _RATE_BUCKETS.get(key, (0, now))
+        if first + RATE_WINDOW < now:
+            count, first = 0, now
+        if count >= MAX_ATTEMPTS:
+            return False
+        _RATE_BUCKETS[key] = (count + 1, first)
+        return True
+
+def reset_attempts(key):
+    with _RATE_LOCK:
+        _RATE_BUCKETS.pop(key, None)
 
 def bearer(headers):
     value = headers.get("Authorization", "")
@@ -50,6 +75,8 @@ def handler_factory(store):
                 store.revoke(token)
                 return self.reply(200, {"ok": True})
             if self.path == "/v1/register":
+                if not allow_attempt(("register", self.client_address[0])):
+                    return self.reply(429, {"error": "rate_limited"})
                 submitted = self.headers.get("X-Registration-Key", "")
                 if len(REGISTER_KEY) < 32 or not hmac.compare_digest(submitted, REGISTER_KEY):
                     return self.reply(403, {"error": "registration_disabled"})
@@ -58,8 +85,12 @@ def handler_factory(store):
                     return self.reply(201, {"account": account})
                 except AuthError as exc:
                     return self.reply(400, {"error": str(exc)})
+            rate_key = ("login", self.client_address[0], str(data.get("username", "")).lower()[:32])
+            if not allow_attempt(rate_key):
+                return self.reply(429, {"error": "rate_limited"})
             try:
                 payload = store.login(data.get("username"), data.get("password"))
+                reset_attempts(rate_key)
                 return self.reply(200, payload)
             except AuthError:
                 return self.reply(401, {"error": "invalid_credentials"})
@@ -77,6 +108,8 @@ def handler_factory(store):
 def main():
     if HOST != "127.0.0.1" and not (HOST == "0.0.0.0" and os.getenv("CDR_AUTH_ALLOW_CONTAINER") == "1"):
         raise ValueError("Auth API may bind only localhost or isolated Docker interface")
+    if REGISTER_KEY and len(REGISTER_KEY) < 32:
+        raise ValueError("CDR_REGISTRATION_KEY must contain at least 32 characters")
     if not 1 <= PORT <= 65535:
         raise ValueError("Invalid port")
     os.makedirs(os.path.dirname(os.path.abspath(DB_PATH)), exist_ok=True)
