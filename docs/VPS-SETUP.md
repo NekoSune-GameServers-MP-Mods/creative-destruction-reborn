@@ -9,6 +9,7 @@ No public port forwarding or exposure.
 - Working Tailscale or WireGuard VPN with a **private, IPv4 address** on the host.
 - Linux firewall denies public access to 8000, 4000-4002, 8088.
 - A legitimate local client copy matching 3.0.210.0.
+- Two **independent** random secrets in `.env`: `CDR_STAFF_TOKEN` and `CDR_REGISTRATION_KEY`.
 
 ## Install
 ```sh
@@ -52,3 +53,8 @@ Only the known `Documents/nonpatch_user_data.dat` HTTP discovery URL is modified
 - Do not reuse NetEase credentials or real player accounts.
 - Remove VPN exposure when not actively testing.
 - See `SECURITY-AUDIT.md` and `ROADMAP-MULTIPLAYER.md`.
+
+## Secure account API (private development)
+The new account service is available **only** on VPS localhost port **8090**. Forward it with `ssh -L 8090:127.0.0.1:8090 username@your-vps`. See [ACCOUNTS.md](ACCOUNTS.md) for registration, login, logout, tokens and limitations.
+
+**Important:** This backend persists independently authenticated accounts but is **not connected to the original game client yet**. Remote legacy game login is disabled until per-player/match state and authenticated handshake tickets are implemented. The loopback-only offline simulator still works as before.
