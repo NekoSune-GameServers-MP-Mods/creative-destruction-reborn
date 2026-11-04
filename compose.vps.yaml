@@ -27,6 +27,9 @@ services:
     read_only: true
     environment:
       CDR_LANGUAGE: ${CDR_LANGUAGE:-en}
+      # Authenticated multi-account login is opt-in until Steam/client TLS testing.
+      CDR_MULTIUSER_ENABLED: ${CDR_MULTIUSER_ENABLED:-0}
+      CDR_ACCOUNT_DB: /app/reborn/server/save/accounts.sqlite3
       CDR_ZONE_NAME: ${CDR_ZONE_NAME:-Reborn-Dev}
       CDR_BIND_HOST: 0.0.0.0
       CDR_ADVERTISE_HOST: ${CDR_VPN_IP:?Set private Tailscale or WireGuard IPv4 in .env}
