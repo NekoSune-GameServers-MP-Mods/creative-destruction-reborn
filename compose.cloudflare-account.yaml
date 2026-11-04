@@ -1,0 +1,19 @@
+# Account API only: Cloudflare Tunnel (remotely managed).
+# Use with the existing compose.yaml; cloudflared and account-api share the
+# default Docker Compose network, so publish route http://account-api:8090.
+# Never publish game TCP ports through this HTTP route.
+#
+# docker compose -f compose.yaml -f compose.cloudflare-account.yaml config --quiet
+# docker compose -f compose.yaml -f compose.cloudflare-account.yaml up -d cloudflared
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CDR_CLOUDFLARE_TUNNEL_TOKEN:?Set the remotely-managed Cloudflare Tunnel token in private .env}
+    depends_on:
+      - account-api
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
