@@ -1,5 +1,5 @@
 {
-  "game_host": "game.cdr.nekosunevr.co.uk",
-  "game_tls_hostname": "game.cdr.nekosunevr.co.uk",
-  "auth_url": "https://auth.cdr.nekosunevr.co.uk"
+  "game_host": "game-cdr.nekosunevr.co.uk",
+  "game_tls_hostname": "game-cdr.nekosunevr.co.uk",
+  "auth_url": "https://auth-cdr.nekosunevr.co.uk"
 }
