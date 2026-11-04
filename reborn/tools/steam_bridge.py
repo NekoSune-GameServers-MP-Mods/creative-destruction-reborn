@@ -26,7 +26,7 @@ import threading
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 SERVER_CODE = Path(__file__).resolve().parents[1] / "server"
 sys.path.insert(0, str(SERVER_CODE))
@@ -41,6 +41,16 @@ DISCOVERY_PATHS = frozenset((
     "client_zonelist_rel_na.txt", "client_zonelist.txt",
 ))
 PROTO = Protocol(str(SERVER_CODE / "data" / "protocol.json"))
+
+
+class RefuseRedirect(HTTPRedirectHandler):
+    """Do not forward account credentials to a redirected origin or HTTP URL."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ValueError("Unexpected redirect from Reborn account API")
+
+
+ACCOUNT_OPENER = build_opener(RefuseRedirect)
+
 
 
 class AccountLogin:
@@ -65,7 +75,7 @@ class AccountLogin:
             "Content-Type": "application/json", **(headers or {}),
         }, method="POST")
         try:
-            with urlopen(req, timeout=15) as resp:
+            with ACCOUNT_OPENER.open(req, timeout=15) as resp:
                 return json.loads(resp.read(8192))
         except HTTPError as exc:
             raise ValueError("Account API returned HTTP %d" % exc.code) from exc
