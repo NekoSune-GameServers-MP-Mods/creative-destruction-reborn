@@ -1964,7 +1964,9 @@ class HttpHandler(http.server.BaseHTTPRequestHandler):
 
 def main():
     log(tr("start"), console=True)
-    if HOST not in ("127.0.0.1", "::1"):
+    if MULTIUSER:
+        log("Authenticated remote TLS game login enabled; shared-player matches not implemented", console=True)
+    elif HOST not in ("127.0.0.1", "::1"):
         log(tr("remote"), console=True)
     log("loaded %d protocol messages" % len(PROTO.by_name), console=True)
     threading.Thread(target=serve_tcp, args=(LOGIN_PORT, "login", send_seed), daemon=True).start()
