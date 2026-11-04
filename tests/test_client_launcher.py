@@ -42,7 +42,7 @@ class LauncherConfigTests(unittest.TestCase):
 
     def test_friendly_auth_errors_hide_raw_diagnostics(self):
         cases = (
-            ("Account API HTTP 403; Content-Type=text/plain; CF-Ray=a555-MAN", "refused access"),
+            ("Account API HTTP 403; Content-Type=text/plain; CF-Ray=a555-MAN", "Cloudflare"),
             ("Account API HTTP 401; API error=invalid_credentials", "Username or password"),
             ("Account API HTTP 429; API error=rate_limited", "Too many attempts"),
             ("Account API HTTP 403; API error=registration_requires_invitation", "invitation"),
