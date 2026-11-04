@@ -165,6 +165,13 @@ class RebornLauncher:
                  bg=BG, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w")
         tk.Frame(root, bg="#293447", height=1).pack(fill="x", padx=30, pady=(0, 18))
 
+        footer = tk.Frame(root, bg="#101b25", padx=25, pady=12)
+        footer.pack(side="bottom", fill="x", padx=24, pady=(0, 12))
+        self.status_label = tk.Label(footer, textvariable=self.status,
+                                     bg="#101b25", fg=TEXT, anchor="w",
+                                     justify="left", wraplength=820,
+                                     font=("Segoe UI", 10))
+        self.status_label.pack(fill="x")
         self.tabs = ttk.Notebook(root)
         self.tabs.pack(fill="both", expand=True, padx=24, pady=(0, 12))
         self.play_tab = ttk.Frame(self.tabs)
@@ -177,9 +184,7 @@ class RebornLauncher:
         self.build_registration()
         self.build_settings()
 
-        ttk.Separator(root, orient="horizontal").pack(fill="x", padx=24)
-        status_line = ttk.Label(root, textvariable=self.status, wraplength=720)
-        status_line.pack(anchor="w", padx=27, pady=(10, 18))
+
         self.root.after(100, self.flush_events)
         if self.config_error:
             self.status.set("Server settings need attention. Open Settings to review them.")
@@ -323,6 +328,15 @@ class RebornLauncher:
             pass
         self.root.after(100, self.flush_events)
 
+    def show_failure(self, message):
+        self.status_label.configure(fg="#ff9eae")
+        self.status.set(message)
+        messagebox.showerror("Launch failed", message, parent=self.root)
+
+    def show_progress(self, message):
+        self.status_label.configure(fg=ACCENT)
+        self.status.set(message)
+
     def on_play(self):
         if self.game_active:
             self.status.set("A game session is already running")
@@ -334,23 +348,24 @@ class RebornLauncher:
             return
         try:
             host, tls, auth_url = self.current()
-        except ValueError as exc:
-            self.status.set(str(exc))
+        except ValueError:
+            self.show_failure("Server settings are invalid. Review them in Settings.")
             return
-        self.status.set("Signing in to Reborn account API over HTTPS...")
+        game = GAME_ROOT / "client.exe"
+        if not game.is_file() or not (GAME_ROOT / "script.npk").is_file():
+            self.show_failure("Game files not found. Place RebornLauncher.exe and its _internal folder next to client.exe and script.npk.")
+            return
+        self.show_progress("Signing in securely to your Reborn account...")
         def task():
-            game = GAME_ROOT / "client.exe"
-            if not game.is_file() or not (GAME_ROOT / "script.npk").is_file():
-                raise FileNotFoundError("Put the GUI launcher next to your installed client.exe and script.npk")
             account = AccountLogin(auth_url, user, secret)
             return (account, host, tls, game)
         def finished(ok, result):
             if not ok:
-                self.status.set(friendly_error(result, "login"))
+                self.show_failure(friendly_error(result, "login"))
                 return
             account, host_name, tls_name, game = result
             self.game_active = True
-            self.status.set("Signed in. Starting bridge and Creative Destruction...")
+            self.show_progress("Signed in. Starting the game connection...")
             self.play_button.configure(state="disabled")
             def start():
                 try:
@@ -358,14 +373,18 @@ class RebornLauncher:
                     run(host_name, account, tls_name, game_executable=game)
                     self.events.put((self.game_finished, True, "Game closed; bridge stopped."))
                 except Exception as exc:
-                    self.events.put((self.game_finished, False, "Game bridge failed: " + type(exc).__name__))
+                    self.events.put((self.game_finished, False, "Game connection failed to start. Check game files, server connectivity and whether another launcher is running."))
             threading.Thread(target=start, daemon=True).start()
         self.worker(task, finished)
 
     def game_finished(self, ok, message):
         self.game_active = False
         self.play_button.configure(state="normal")
-        self.status.set(message)
+        if ok:
+            self.status_label.configure(fg=ACCENT)
+            self.status.set(message)
+        else:
+            self.show_failure(message)
 
     def on_register(self):
         username = self.reg_username.get().strip()
@@ -393,7 +412,7 @@ class RebornLauncher:
                 self.status.set("Account created. Enter your password to Play.")
                 messagebox.showinfo("Registration successful", "Account created: " + result)
             else:
-                self.status.set(friendly_error(result, "register"))
+                self.show_failure(friendly_error(result, "register"))
         self.worker(lambda: signup(auth_url, username, password, invite), finished)
 
     def on_save(self):
