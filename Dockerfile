@@ -23,5 +23,8 @@ CMD ["python", "cluster_agent.py"]
 
 # Keep game-server last so 'docker build .' remains the local simulator.
 FROM base AS game-server
-COPY --chown=cdr:cdr reborn/server/ ./
+# Only the live game runtime is packaged. Unrelated account/dashboard edits must
+# not alter the game image digest or force its CI build.
+COPY --chown=cdr:cdr reborn/server/offline_server.py reborn/server/bots.py reborn/server/loot.py reborn/server/nexproto.py reborn/server/server_config.py reborn/server/i18n.py ./
+COPY --chown=cdr:cdr reborn/server/data/ ./data/
 CMD ["python", "offline_server.py"]
