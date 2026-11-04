@@ -66,6 +66,18 @@ class OfflineSdkChannel(object):
         return _NoOp(name)
 
     def get_prop_str(self, key):
+        if key == 'SAUTH_JSON':
+            # The Reborn login helper writes ONLY a 45-second one-time game
+            # ticket here, never the account password or bearer session token.
+            try:
+                import json
+                with open('Documents/reborn_game_auth.json', 'rb') as auth_file:
+                    payload = json.load(auth_file)
+                ticket = payload.get('game_ticket')
+                if isinstance(ticket, basestring) and 32 <= len(ticket) <= 256:
+                    return json.dumps({'game_ticket': ticket}, separators=(',', ':'))
+            except Exception:
+                pass
         return self._props.get(key, '')
 
     def set_prop_str(self, key, value):
