@@ -59,6 +59,9 @@ class RealGameTlsTests(unittest.TestCase):
         store.register("WirePlayer", "strong-wire-password-123")
         bearer = store.login("WirePlayer", "strong-wire-password-123")["token"]
         self.ticket = store.issue_game_login_ticket(bearer)["ticket"]
+        store.register("WireSecond", "another-strong-password-456")
+        bearer2 = store.login("WireSecond", "another-strong-password-456")["token"]
+        self.ticket2 = store.issue_game_login_ticket(bearer2)["ticket"]
         store.close()
         env = dict(os.environ, CDR_BIND_HOST="0.0.0.0",
                    CDR_ALLOW_REMOTE="1", CDR_ADVERTISE_HOST="127.0.0.1",
@@ -113,6 +116,41 @@ class RealGameTlsTests(unittest.TestCase):
             if name == wanted:
                 return body
         raise AssertionError("did not receive " + wanted)
+
+    def test_two_concurrent_tls_clients_have_separate_saved_characters(self):
+        first = self.sockets[0]
+        second = self.connect(4000)
+        self.sockets.append(second)
+        receive(second)
+        self.send(first, "C_LOGIN_AUTH",
+                  {"sauth_json": json.dumps({"game_ticket": self.ticket})})
+        self.send(second, "C_LOGIN_AUTH",
+                  {"sauth_json": json.dumps({"game_ticket": self.ticket2})})
+        a = self.until(first, "S_LOGIN_AUTH")
+        b = self.until(second, "S_LOGIN_AUTH")
+        self.assertEqual(a["err_code"], 0)
+        self.assertEqual(b["err_code"], 0)
+        self.assertNotEqual(a["aid"], b["aid"])
+
+        for auth, name, uid in ((a, "Alice", 100001), (b, "Bob", 100002)):
+            gate = self.connect(4001)
+            self.sockets.append(gate)
+            self.until(gate, "S_LOGIN_JOIN_QUEUE")
+            self.send(gate, "C_LOGIN_CREATE", {
+                "auth_sn": auth["auth_sn"], "name": name, "gender": 1,
+                "auth_hostid": 1})
+            avatar = self.until(gate, "S_AVATAR_GAME_PLAYER")
+            self.assertEqual(avatar["uid"], uid)
+            self.assertEqual(avatar["name"], name.encode())
+
+        import sqlite3
+        with sqlite3.connect(self.db) as db:
+            rows = db.execute(
+                "SELECT account_id,payload FROM game_player_saves ORDER BY account_id"
+            ).fetchall()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(json.loads(rows[0][1])["name"], "Alice")
+        self.assertEqual(json.loads(rows[1][1])["name"], "Bob")
 
     def test_actual_tls_verified_login_to_battle(self):
         login = self.sockets[0]
