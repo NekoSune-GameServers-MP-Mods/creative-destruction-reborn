@@ -35,3 +35,21 @@ curl -i http://127.0.0.1:8000/client_zonelist_rel_na.txt
 ```
 
 For testing, limit access to a trusted environment. Never send production NetEase credentials to a replacement server or expose the incomplete simulator to public players.
+
+## Steam server list: red "Offline" / 999 ms
+
+The Steam 3.0.248.0 build first asks for `loginlist_rel_steam_na.txt` and `client_zonelist_rel_steam_na.txt`. The old hardcoded zone-list payload was `1 Offline pc 202001010000 1`. This PR changes only the **display name** to `Reborn-Dev` by default, optionally set with `CDR_ZONE_NAME`. The same zone record is served to the Android and PC discovery endpoints.
+
+**This is not an online-status or ping fix.** The red "Full" icon, `999 ms` reading, and disabled Play button still need a packet capture of the Steam client's status/login probe and compatibility with its exact 3.0.248.0 game protocol. The current remote game authentication path deliberately rejects public clients until game state is isolated. Do not bypass it or invent a green ping.
+
+After merging this PR and the GHCR workflow successfully publishes:
+```bash
+docker compose -f compose.vps.yaml pull
+docker compose -f compose.vps.yaml up -d
+docker compose -f compose.vps.yaml logs --tail=80 game-server
+```
+You can check the new zone label using:
+```bash
+curl -fsS http://YOUR_SERVER_IP:8000/client_zonelist_rel_steam_na.txt
+```
+If it still says `Offline`, verify the VPS really pulled the newly published image (do not edit the host Python file; it is not mounted in the image). Do not paste operator tokens or registration secrets in issue reports.
