@@ -27,6 +27,11 @@ def validate(config):
     token = config["CDR_STAFF_TOKEN"]
     if len(token) < 32 or token.startswith("REPLACE_") or len(set(token)) < 12:
         raise ValueError("CDR_STAFF_TOKEN must be a strong random 32+ character secret")
+    registration = config["CDR_REGISTRATION_KEY"]
+    if len(registration) < 32 or registration.startswith("REPLACE_") or len(set(registration)) < 12:
+        raise ValueError("CDR_REGISTRATION_KEY must be a separate random 32+ character secret")
+    if registration == token:
+        raise ValueError("Registration key and staff token must differ")
     return True
 
 if __name__ == "__main__":
