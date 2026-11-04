@@ -25,6 +25,6 @@ CMD ["python", "cluster_agent.py"]
 FROM base AS game-server
 # Only the live game runtime is packaged. Unrelated account/dashboard edits must
 # not alter the game image digest or force its CI build.
-COPY --chown=cdr:cdr reborn/server/offline_server.py reborn/server/bots.py reborn/server/loot.py reborn/server/nexproto.py reborn/server/server_config.py reborn/server/i18n.py ./
+COPY --chown=cdr:cdr reborn/server/offline_server.py reborn/server/bots.py reborn/server/loot.py reborn/server/nexproto.py reborn/server/server_config.py reborn/server/i18n.py reborn/server/accounts.py reborn/server/game_tickets.py reborn/server/game_identity.py reborn/server/multiplayer_sessions.py reborn/server/player_profiles.py reborn/server/player_state.py ./
 COPY --chown=cdr:cdr reborn/server/data/ ./data/
 CMD ["python", "offline_server.py"]
