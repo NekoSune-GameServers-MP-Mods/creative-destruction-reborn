@@ -17,6 +17,7 @@ import math
 import os
 import random
 import socket
+import ssl
 import struct
 import threading
 import time
@@ -42,6 +43,18 @@ HOST = listener_host()
 ADVERTISE_HOST = advertised_host()
 CLIENT_SLOTS = threading.BoundedSemaphore(connection_limit())
 MULTIUSER = HOST != "127.0.0.1" and os.getenv("CDR_MULTIUSER_ENABLED", "0") == "1"
+GAME_SSL_CONTEXT = None
+if MULTIUSER:
+    cert_file = os.getenv("CDR_GAME_TLS_CERT", "")
+    key_file = os.getenv("CDR_GAME_TLS_KEY", "")
+    if not cert_file or not key_file:
+        raise ValueError(
+            "Authenticated remote multiplayer requires TLS: set CDR_GAME_TLS_CERT "
+            "and CDR_GAME_TLS_KEY to readable cert/key file paths"
+        )
+    GAME_SSL_CONTEXT = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    GAME_SSL_CONTEXT.minimum_version = ssl.TLSVersion.TLSv1_2
+    GAME_SSL_CONTEXT.load_cert_chain(cert_file, key_file)
 IDENTITY = None
 STATES = None
 
@@ -1807,6 +1820,27 @@ def on_echo(conn, msg):
 
 
 # ------------------------------------------------------------------ servers
+def secure_client_loop(sock, addr, kind, on_connect):
+    """Bounded TLS handshake per accepted remote client, before game protocol."""
+    conn = None
+    try:
+        if MULTIUSER:
+            sock.settimeout(8)
+            sock = GAME_SSL_CONTEXT.wrap_socket(sock, server_side=True)
+            sock.settimeout(None)
+        conn = Connection(sock, addr, kind)
+        client_loop(conn, on_connect)
+    except (ssl.SSLError, OSError, TimeoutError) as exc:
+        log("[%s] secure connection failed (%s)" % (kind, type(exc).__name__))
+    finally:
+        if conn is None:
+            CLIENT_SLOTS.release()
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+
 def serve_tcp(port, kind, on_connect=None):
     s = socket.socket()
     # On Windows SO_REUSEADDR lets a second server steal the port; insist on exclusive use instead.
@@ -1824,7 +1858,7 @@ def serve_tcp(port, kind, on_connect=None):
             c.close()
             continue
         try:
-            threading.Thread(target=client_loop, args=(Connection(c, a, kind), on_connect), daemon=True).start()
+            threading.Thread(target=secure_client_loop, args=(c, a, kind, on_connect), daemon=True).start()
         except Exception:
             CLIENT_SLOTS.release()
             c.close()
