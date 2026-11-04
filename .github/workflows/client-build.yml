@@ -1,0 +1,59 @@
+name: Build Windows Reborn Client Package
+
+on:
+  push:
+    branches: [client]
+    paths:
+      - 'reborn/client_mod/**'
+      - 'reborn/client-config.json'
+      - 'reborn/tools/steam_bridge.py'
+      - 'reborn/tools/steam_launcher.py'
+      - 'reborn/tools/steam_register.py'
+      - 'reborn/tools/patch_server.py'
+      - 'reborn/tools/install.py'
+      - 'reborn/server/nexproto.py'
+      - 'reborn/server/data/protocol.json'
+      - 'Play Private Server.bat'
+      - 'tests/test_client_launcher.py'
+      - 'tests/test_steam_bridge.py'
+      - '.github/workflows/client-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: client-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-client:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate launcher and real NeoX packet rewrite
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p "test_client_launcher.py" -v
+          python -m unittest discover -s tests -p "test_steam_bridge.py" -v
+      - name: Create client-only zip (no official game binaries or passwords)
+        shell: pwsh
+        run: |
+          $out = "dist/Creative-Destruction-Reborn-Client"
+          New-Item -ItemType Directory -Force "$out/reborn/tools", "$out/reborn/server/data", "$out/reborn/client_mod" | Out-Null
+          Copy-Item "Play Private Server.bat" "$out/"
+          Copy-Item "reborn/client-config.json" "$out/reborn/"
+          Copy-Item "reborn/tools/steam_bridge.py", "reborn/tools/steam_launcher.py", "reborn/tools/steam_register.py", "reborn/tools/patch_server.py", "reborn/tools/install.py" "$out/reborn/tools/"
+          Copy-Item "reborn/server/nexproto.py" "$out/reborn/server/"
+          Copy-Item "reborn/server/data/protocol.json" "$out/reborn/server/data/"
+          Copy-Item "reborn/client_mod/*" "$out/reborn/client_mod/" -Recurse -Force
+          Compress-Archive -Path "$out/*" -DestinationPath "dist/Creative-Destruction-Reborn-Client.zip" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Creative-Destruction-Reborn-Windows-Client
+          path: dist/Creative-Destruction-Reborn-Client.zip
+          if-no-files-found: error
+          retention-days: 30
