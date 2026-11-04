@@ -20,3 +20,12 @@ def connection_limit():
     if not 1 <= value <= 256:
         raise ValueError("CDR_MAX_CONNECTIONS must be between 1 and 256")
     return value
+
+def advertised_host():
+    """Address sent to the game client; never send Docker's wildcard bind address."""
+    value = os.getenv("CDR_ADVERTISE_HOST", "127.0.0.1").strip()
+    try:
+        ipaddress.ip_address(value)
+    except ValueError as exc:
+        raise ValueError("CDR_ADVERTISE_HOST must be a numeric IP address") from exc
+    return value
