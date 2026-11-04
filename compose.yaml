@@ -1,7 +1,9 @@
 # Local Docker development ONLY: localhost-published ports prevent public exposure.
 services:
   volume-init:
-    build: .
+    build:
+      context: .
+      target: game-server
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -15,7 +17,10 @@ services:
       - cdr_logs:/app/reborn/server/logs
       - cdr_save:/app/reborn/server/save
   creative-destruction-dev:
-    build: .
+    build:
+      context: .
+      target: game-server
+    image: cdr-game-server:development
     depends_on:
       volume-init:
         condition: service_completed_successfully
@@ -24,6 +29,7 @@ services:
     read_only: true
     environment:
       CDR_LANGUAGE: ${CDR_LANGUAGE:-en}
+      CDR_ZONE_NAME: ${CDR_ZONE_NAME:-Reborn-Dev}
       CDR_BIND_HOST: 0.0.0.0
       CDR_ADVERTISE_HOST: 127.0.0.1
       CDR_ALLOW_REMOTE: "1" # Container interface only; host ports below bind localhost.
