@@ -27,6 +27,7 @@ services:
     read_only: true
     environment:
       CDR_LANGUAGE: ${CDR_LANGUAGE:-en}
+      CDR_ZONE_NAME: ${CDR_ZONE_NAME:-Reborn-Dev}
       CDR_BIND_HOST: 0.0.0.0
       CDR_ADVERTISE_HOST: ${CDR_VPN_IP:?Set private Tailscale or WireGuard IPv4 in .env}
       CDR_ALLOW_REMOTE: "1"
