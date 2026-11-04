@@ -1,0 +1,19 @@
+# Authenticated, account-scoped REMOTE LOGIN overlay for existing VPS compose.yaml.
+# This is NOT the single-IP test mode. Multiple distinct Reborn accounts may
+# authenticate. Battle replication and secure game transport remain unfinished.
+# The HTTPS account endpoint must be configured separately before exposing this.
+#
+# docker compose -f compose.yaml -f compose.authenticated.yaml config --quiet
+# docker compose -f compose.yaml -f compose.authenticated.yaml pull game-server account-api
+# docker compose -f compose.yaml -f compose.authenticated.yaml up -d --no-deps game-server account-api
+services:
+  game-server:
+    image: ${CDR_GAME_SERVER_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn/game-server:branch-server}
+    environment:
+      CDR_MULTIUSER_ENABLED: "1"
+      CDR_ACCOUNT_DB: /app/reborn/server/save/accounts.sqlite3
+
+  account-api:
+    image: ${CDR_ACCOUNT_API_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn/account-api:branch-account}
+    environment:
+      CDR_ACCOUNT_DB: /app/reborn/server/save/accounts.sqlite3
