@@ -2,8 +2,26 @@
 # Set CDR_VPN_IP and CDR_STAFF_TOKEN in .env, then:
 # docker compose -f compose.vps.yaml pull && docker compose -f compose.vps.yaml up -d
 services:
+  volume-init:
+    # One-shot volume ownership repair; the game and account API stay non-root.
+    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "chown -R 10001:10001 /app/reborn/server/logs /app/reborn/server/save"
+    restart: "no"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    volumes:
+      - cdr_logs:/app/reborn/server/logs
+      - cdr_save:/app/reborn/server/save
   game-server:
     image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     init: true
     read_only: true
@@ -28,6 +46,9 @@ services:
     mem_limit: 512m
   account-api:
     image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     command: ["python", "account_api.py"]
     restart: unless-stopped
     init: true
@@ -39,7 +60,7 @@ services:
       CDR_ACCOUNT_DB: /app/reborn/server/save/accounts.sqlite3
       CDR_REGISTRATION_KEY: ${CDR_REGISTRATION_KEY:?Set a strong registration secret in .env}
     ports:
-      - "127.0.0.1:8090:8090/tcp"
+      - "127.0.0.1:${CDR_ACCOUNT_HOST_PORT:-8090}:8090/tcp"
     volumes:
       - cdr_save:/app/reborn/server/save
     tmpfs: ["/tmp:size=16m,noexec,nosuid,nodev"]
@@ -49,6 +70,9 @@ services:
     mem_limit: 256m
   staff:
     image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     command: ["python", "staff_dashboard.py"]
     restart: unless-stopped
     init: true
@@ -58,7 +82,7 @@ services:
       CDR_STAFF_PORT: "8088"
       CDR_STAFF_TOKEN: ${CDR_STAFF_TOKEN:?Set a random 32+ character token in .env}
     ports:
-      - "127.0.0.1:8088:8088/tcp"
+      - "127.0.0.1:${CDR_STAFF_HOST_PORT:-8088}:8088/tcp"
     volumes:
       - cdr_logs:/app/reborn/server/logs:ro
       - cdr_save:/app/reborn/server/save:ro
