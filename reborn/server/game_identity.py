@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import threading
+import time
 from accounts import AccountStore
 from multiplayer_sessions import MultiplayerRegistry, SessionRejected
 from player_profiles import PlayerProfileStore
@@ -19,8 +20,23 @@ class GameIdentity:
         self.profiles = PlayerProfileStore(db_path)
         self.sessions = MultiplayerRegistry(self.accounts, self.profiles)
         self.lock = threading.RLock()
-        self.gateway_pending = {}  # sha256(one-use ticket) -> session id
-        self.battle_pending = {}   # sha256(one-use ticket) -> session id
+        self.gateway_pending = {}  # sha256(ticket) -> (session_id, monotonic expiry)
+        self.battle_pending = {}   # sha256(ticket) -> (session_id, monotonic expiry)
+        self.state_store = None
+
+    def prune(self):
+        """Forget abandoned login stages; they must not permanently lock accounts."""
+        now = time.monotonic()
+        with self.lock:
+            for key, (sid, expiry) in list(self.gateway_pending.items()):
+                if now >= expiry:
+                    del self.gateway_pending[key]
+                    self.sessions.disconnect(sid)
+                    if self.state_store is not None:
+                        self.state_store.detach(sid)
+            for key, (_, expiry) in list(self.battle_pending.items()):
+                if now >= expiry:
+                    del self.battle_pending[key]
 
     @staticmethod
     def digest(raw):
@@ -41,6 +57,7 @@ class GameIdentity:
         if not isinstance(data, dict) or set(data) != {"game_ticket"}:
             return None
         raw = data["game_ticket"]
+        self.prune()
         with self.lock:
             account = self.accounts.consume_game_login_ticket(raw)
             if account is None:
@@ -49,7 +66,8 @@ class GameIdentity:
                 stage = self.sessions.open_verified_identity(account)
             except SessionRejected:
                 return None
-            self.gateway_pending[self.digest(stage["gateway_ticket"])] = stage["session_id"]
+            self.gateway_pending[self.digest(stage["gateway_ticket"])] = (
+                stage["session_id"], time.monotonic() + 60)
             return {
                 "session_id": stage["session_id"], "account_id": account["id"],
                 "username": account["username"], "auth_sn": stage["gateway_ticket"],
@@ -64,9 +82,13 @@ class GameIdentity:
                 return None
         if not isinstance(ticket, str) or not 32 <= len(ticket) <= 256:
             return None
+        self.prune()
         with self.lock:
-            sid = self.gateway_pending.pop(self.digest(ticket), None)
-            if sid is None:
+            entry = self.gateway_pending.pop(self.digest(ticket), None)
+            if entry is None:
+                return None
+            sid, expires = entry
+            if time.monotonic() >= expires:
                 return None
             if not self.sessions.redeem_gateway(sid, ticket, conn):
                 self.sessions.disconnect(sid)
@@ -79,7 +101,7 @@ class GameIdentity:
         with self.lock:
             self.sessions.join_room(sid, room_id)
             ticket = self.sessions.issue_battle(sid)
-            self.battle_pending[self.digest(ticket)] = sid
+            self.battle_pending[self.digest(ticket)] = (sid, time.monotonic() + 60)
             return ticket
 
     def battle(self, ticket, conn):
@@ -90,9 +112,13 @@ class GameIdentity:
                 return None
         if not isinstance(ticket, str) or not 32 <= len(ticket) <= 256:
             return None
+        self.prune()
         with self.lock:
-            sid = self.battle_pending.pop(self.digest(ticket), None)
-            if sid is None or not self.sessions.redeem_battle(sid, ticket, conn):
+            entry = self.battle_pending.pop(self.digest(ticket), None)
+            if entry is None:
+                return None
+            sid, expires = entry
+            if time.monotonic() >= expires or not self.sessions.redeem_battle(sid, ticket, conn):
                 return None
             conn.session_id = sid
             return self.sessions.account_snapshot(sid)
@@ -104,7 +130,7 @@ class GameIdentity:
         with self.lock:
             self.sessions.disconnect(sid)
             for pending in (self.gateway_pending, self.battle_pending):
-                for key, value in list(pending.items()):
+                for key, (value, _) in list(pending.items()):
                     if value == sid:
                         del pending[key]
             conn.session_id = None
