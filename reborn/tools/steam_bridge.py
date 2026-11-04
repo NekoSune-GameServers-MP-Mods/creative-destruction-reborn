@@ -29,7 +29,11 @@ from urllib.parse import urlsplit
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
-SERVER_CODE = Path(__file__).resolve().parents[1] / "server"
+SERVER_CODE = (
+    Path(sys._MEIPASS) / "reborn" / "server"
+    if getattr(sys, "frozen", False)
+    else Path(__file__).resolve().parents[1] / "server"
+)
 sys.path.insert(0, str(SERVER_CODE))
 from nexproto import Protocol  # noqa: E402
 
