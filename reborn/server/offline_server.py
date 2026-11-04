@@ -1777,13 +1777,23 @@ def client_loop(conn, on_connect):
 
 
 LOGINLIST = "1 %s %d\n" % (ADVERTISE_HOST, LOGIN_PORT)
-ZONELIST = "%d Offline pc 202001010000 1\n" % ZONE_ID
+# This is only the display label. It does NOT signal online status or ping.
+# Keep the legacy discovery wire fields untouched until client status parsing is verified.
+def zone_display_name():
+    value = os.getenv("CDR_ZONE_NAME", "Reborn-Dev").strip()
+    if not 1 <= len(value) <= 24 or not all(c.isascii() and (c.isalnum() or c in "-_") for c in value):
+        raise ValueError("CDR_ZONE_NAME must be 1-24 ASCII letters, digits, '-' or '_'")
+    return value
+
+ZONELIST = "%d %s pc 202001010000 1\\n" % (ZONE_ID, zone_display_name())
 HTTP_FILES = {
     "loginlist_rel_pc_na.txt": LOGINLIST,
     "loginlist_rel_steam_na.txt": LOGINLIST,
+    "loginlist_rel_na.txt": LOGINLIST,
     "loginlist.txt": LOGINLIST,
     "client_zonelist_rel_pc_na.txt": ZONELIST,
     "client_zonelist_rel_steam_na.txt": ZONELIST,
+    "client_zonelist_rel_na.txt": ZONELIST,
     "client_zonelist.txt": ZONELIST,
 }
 
