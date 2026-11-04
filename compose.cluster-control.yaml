@@ -3,7 +3,7 @@
 # reverse proxy or tunnel. Never publicly expose the raw HTTP auth API.
 services:
   volume-init:
-    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    image: ${CDR_GAME_SERVER_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn/game-server:latest}
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
     command: ["chown -R 10001:10001 /app/reborn/server/save"]
@@ -15,7 +15,7 @@ services:
     volumes:
       - cdr_save:/app/reborn/server/save
   account-api:
-    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    image: ${CDR_ACCOUNT_API_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn/account-api:latest}
     depends_on:
       volume-init:
         condition: service_completed_successfully
@@ -37,7 +37,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
   cluster-api:
-    image: ${CDR_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest}
+    image: ${CDR_CLUSTER_API_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn/cluster-api:latest}
     depends_on:
       volume-init:
         condition: service_completed_successfully
