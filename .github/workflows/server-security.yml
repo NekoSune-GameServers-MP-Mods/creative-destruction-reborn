@@ -44,6 +44,7 @@ jobs:
         env:
           CDR_VPN_IP: 100.101.22.33
           CDR_STAFF_TOKEN: A12b34C56d78E90fGhIjKlMnOpQrStUvWxYz
+          CDR_REGISTRATION_KEY: 1Qaz2Wsx3Edc4Rfv5Tgb6Yhn7Ujm8Ik9
         run: docker compose -f compose.vps.yaml config --quiet
       - name: Reject unsafe VPS settings
         run: python3 -m unittest discover -s tests -p test_vps_config.py -v
