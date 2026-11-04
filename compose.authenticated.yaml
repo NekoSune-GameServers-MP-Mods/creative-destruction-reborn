@@ -12,6 +12,12 @@ services:
     environment:
       CDR_MULTIUSER_ENABLED: "1"
       CDR_ACCOUNT_DB: /app/reborn/server/save/accounts.sqlite3
+      CDR_GAME_TLS_CERT: /run/secrets/cdr-game-cert.pem
+      CDR_GAME_TLS_KEY: /run/secrets/cdr-game-key.pem
+    volumes:
+      # Use a CA-trusted game hostname certificate; key readable by uid 10001.
+      - ${CDR_GAME_TLS_CERT_HOST:?Set absolute certificate file path}:/run/secrets/cdr-game-cert.pem:ro
+      - ${CDR_GAME_TLS_KEY_HOST:?Set absolute private key file path}:/run/secrets/cdr-game-key.pem:ro
 
   account-api:
     image: ${CDR_ACCOUNT_API_IMAGE:-ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn/account-api:branch-account}
