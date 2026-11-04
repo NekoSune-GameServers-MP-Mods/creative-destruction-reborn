@@ -20,6 +20,7 @@ import json
 import socket
 import ssl
 import socketserver
+import subprocess
 import struct
 import sys
 import threading
@@ -233,7 +234,7 @@ def validate_game_host(value):
     return value
 
 
-def run(host, account, tls_hostname):
+def run(host, account, tls_hostname, game_executable=None):
     servers = []
     try:
         for port in PORTS:
@@ -246,8 +247,14 @@ def run(host, account, tls_hostname):
             threading.Thread(target=srv.serve_forever, daemon=True).start()
         print("Reborn bridge ready: localhost:8000, 4000, 4001, 4002")
         print("VPS: %s | account: %s" % (host, account.username))
-        print("Start Creative Destruction and select the server. Ctrl+C to stop.")
-        threading.Event().wait()
+        if game_executable is not None:
+            print("Starting Creative Destruction with the authenticated bridge...")
+            game = subprocess.Popen([str(game_executable)], cwd=str(Path(game_executable).parent))
+            game.wait()
+            print("Game exited; closing local bridge.")
+        else:
+            print("Start Creative Destruction and select the server. Ctrl+C to stop.")
+            threading.Event().wait()
     finally:
         for srv in servers:
             srv.shutdown()
