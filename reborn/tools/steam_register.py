@@ -7,8 +7,16 @@ import argparse
 import getpass
 import json
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from urllib.error import HTTPError, URLError
+
+
+class RefuseRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ValueError("Unexpected redirect from Reborn account API")
+
+
+ACCOUNT_OPENER = build_opener(RefuseRedirect)
 
 
 def register(auth_url, username, password, invite_code):
@@ -20,7 +28,7 @@ def register(auth_url, username, password, invite_code):
     }).encode("utf-8")
     request = Request(auth_url.rstrip("/") + "/v1/register", data=payload,
                       headers={"Content-Type": "application/json"}, method="POST")
-    with urlopen(request, timeout=15) as response:
+    with ACCOUNT_OPENER.open(request, timeout=15) as response:
         return json.loads(response.read(8192))
 
 
