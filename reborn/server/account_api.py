@@ -75,10 +75,16 @@ def handler_factory(store):
                 store.revoke(token)
                 return self.reply(200, {"ok": True})
             if self.path == "/v1/game-ticket":
-                if not allow_attempt(("game-ticket", self.client_address[0])):
+                token = bearer(self.headers)
+                account = store.resolve(token)
+                if account is None:
+                    return self.reply(401, {"error": "unauthorized"})
+                # Account-scoped rate limiting works behind localhost HTTPS proxies,
+                # where all users would otherwise appear to share the same IP.
+                if not allow_attempt(("game-ticket", account["id"])):
                     return self.reply(429, {"error": "rate_limited"})
                 try:
-                    issued = store.issue_game_login_ticket(bearer(self.headers))
+                    issued = store.issue_game_login_ticket(token)
                 except AuthError:
                     return self.reply(401, {"error": "unauthorized"})
                 return self.reply(200, issued)
