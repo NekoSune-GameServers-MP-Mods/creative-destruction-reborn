@@ -80,7 +80,7 @@ class GameIdentity:
                 ticket = ticket.decode("ascii")
             except UnicodeDecodeError:
                 return None
-        if not isinstance(ticket, str) or not 32 <= len(ticket) <= 256:
+        if not isinstance(ticket, str) or not ticket.isascii() or not 32 <= len(ticket) <= 256:
             return None
         self.prune()
         with self.lock:
