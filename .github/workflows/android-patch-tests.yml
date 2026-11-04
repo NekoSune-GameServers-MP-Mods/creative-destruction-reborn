@@ -1,0 +1,41 @@
+name: Android Experimental APK Patcher Tests
+
+on:
+  push:
+    branches: [android]
+    paths:
+      - 'reborn/tools/patch_android_apk.py'
+      - 'tests/test_android_apk_patch.py'
+      - 'docs/ANDROID-CROSSPLAY-STATUS.md'
+      - '.github/workflows/android-patch-tests.yml'
+  pull_request:
+    paths:
+      - 'reborn/tools/patch_android_apk.py'
+      - 'tests/test_android_apk_patch.py'
+      - '.github/workflows/android-patch-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-android-patcher:
+    name: Verify Android APK patcher (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Test both discovery assets and preserve original contents
+        run: python -m unittest discover -s tests -p "test_android_apk_patch.py" -v
+      - name: Compile Android patcher
+        run: python -m py_compile reborn/tools/patch_android_apk.py
+
+# No uploaded proprietary game APK is distributed via CI artifacts.
+# Android signing/install/crossplay require user-owned assets, a developer key,
+# and real-device runtime tests.
