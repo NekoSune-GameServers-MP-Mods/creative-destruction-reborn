@@ -1780,6 +1780,9 @@ QUIET_MESSAGES = {"C_SYS_GAME_ECHO", "C_SYS_BATTLE_ECHO", "C_FIGHT_SYNC_CAMERA",
 def client_loop(conn, on_connect):
     log("[%s] connect %s" % (conn.kind, conn.addr))
     try:
+        if HOST != "127.0.0.1" and not REMOTE_LAB.allowed(conn.addr[0]):
+            log("[%s] denied: remote source is not explicitly allowlisted" % conn.kind)
+            return
         if on_connect:
             on_connect(conn)
         if not conn.alive:
