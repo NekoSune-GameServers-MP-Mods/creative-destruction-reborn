@@ -15,6 +15,8 @@ class AndroidDiscoveryTests(unittest.TestCase):
         self.assertEqual(HTTP_FILES["client_zonelist_rel_steam_na.txt"], ZONELIST)
         self.assertIn(" Reborn-Dev pc ", ZONELIST)
         self.assertNotIn(" Offline pc ", ZONELIST)
+        self.assertTrue(ZONELIST.endswith("\\n"))
+        self.assertFalse(ZONELIST.endswith(r"\\n"))
 
     def test_android_server_records_are_present(self):
         self.assertTrue(LOGINLIST.strip())
