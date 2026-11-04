@@ -54,6 +54,38 @@ ACCOUNT_OPENER = build_opener(RefuseRedirect)
 
 
 
+def format_account_http_error(exc):
+    """Report status, safe API error code and Ray ID; never echo request/response secrets.
+
+    Cloudflare appears as the Server header even on normal proxied responses.
+    HTML is more suggestive of an edge block; an API JSON error is not proof
+    either way. The Ray ID provides the best key to correlate edge WAF events.
+    """
+    content_type = (exc.headers.get("Content-Type", "") or "").split(";", 1)[0].strip().lower()
+    ray = (exc.headers.get("CF-Ray", "") or "").strip()
+    ray = ray if 1 <= len(ray) <= 64 and all(c.isalnum() or c in "-_" for c in ray) else "not provided"
+    code = "unknown"
+    if content_type == "application/json":
+        try:
+            payload = json.loads(exc.read(4096).decode("utf-8"))
+            if isinstance(payload, dict):
+                candidate = payload.get("error")
+                # Only expose known non-sensitive error codes; never print
+                # arbitrary JSON or HTML served by an untrusted reverse proxy.
+                known = {"invalid_credentials", "unauthorized", "forbidden",
+                         "registration_requires_invitation", "rate_limited",
+                         "not_found", "json_required", "invalid_request_size"}
+                if candidate in known:
+                    code = candidate
+        except (ValueError, UnicodeDecodeError, OSError, TypeError):
+            pass
+    return ("Account API HTTP %d; Content-Type=%s; API error=%s; CF-Ray=%s. "
+            "Compare this Ray ID in Cloudflare Security Events and check "
+            "whether the account API received POST /v1/login. "
+            "Do not share passwords or session tokens."
+            % (exc.code, content_type or "missing", code, ray))
+
+
 class AccountLogin:
     def __init__(self, url, username, password):
         parsed = urlsplit(url)
@@ -79,33 +111,7 @@ class AccountLogin:
             with ACCOUNT_OPENER.open(req, timeout=15) as resp:
                 return json.loads(resp.read(8192))
         except HTTPError as exc:
-            # Never print request bodies, account passwords or bearer tokens.
-            # The Reborn /v1/login endpoint returns 401 on bad credentials;
-            # a 403 commonly originates from Cloudflare Access/WAF.
-            if exc.code == 403:
-                marker = (exc.headers.get("Content-Type", "") or "").lower()
-                server = (exc.headers.get("Server", "") or "").lower()
-                if "cloudflare" in server or "text/html" in marker:
-                    raise ValueError(
-                        "Account API HTTP 403: Cloudflare Access/WAF may be blocking "
-                        "the launcher. Check Zero Trust Access policies and WAF "
-                        "Security Events for auth-cdr.nekosunevr.co.uk."
-                    ) from exc
-                raise ValueError(
-                    "Account API HTTP 403: request forbidden. Verify Cloudflare "
-                    "Access/WAF rules and account API route; no credentials were logged."
-                ) from exc
-            if exc.code == 401:
-                raise ValueError(
-                    "Account API HTTP 401: account username/password rejected, "
-                    "or account session expired."
-                ) from exc
-            if exc.code == 429:
-                raise ValueError(
-                    "Account API HTTP 429: too many attempts; review API and "
-                    "Cloudflare rate limits."
-                ) from exc
-            raise ValueError("Account API returned HTTP %d" % exc.code) from exc
+            raise ValueError(format_account_http_error(exc)) from exc
 
     def issue_ticket(self):
         with self.lock:
