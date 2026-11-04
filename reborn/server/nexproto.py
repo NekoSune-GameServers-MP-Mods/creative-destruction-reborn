@@ -154,51 +154,93 @@ def pack_fields(desc, data, all_fields):
     return out
 
 
-def unpack_value(nex_type, extra, buf, off):
+MAX_NESTING = 16
+MAX_COLLECTION_ITEMS = 4096
+
+def _require(buf, off, size, end):
+    if size < 0 or off < 0 or off + size > end or end > len(buf):
+        raise ValueError("Truncated or out-of-bounds network field")
+
+def _unpack_varint_bounded(buf, off, end):
+    _require(buf, off, 1, end)
+    prefix = buf[off]
+    count = 1 if prefix & 1 else (9 if prefix == 0 else trailing_zeros8(prefix) + 1)
+    _require(buf, off, count, end)
+    return unpack_varint(buf, off)
+
+def unpack_value(nex_type, extra, buf, off, end=None, depth=0):
+    if end is None:
+        end = len(buf)
+    if depth > MAX_NESTING:
+        raise ValueError("Network nesting limit exceeded")
     if nex_type in FIXED:
         fmt = FIXED[nex_type]
-        return struct.unpack_from(fmt, buf, off)[0], off + struct.calcsize(fmt)
+        size = struct.calcsize(fmt)
+        _require(buf, off, size, end)
+        return struct.unpack_from(fmt, buf, off)[0], off + size
     if nex_type == "VARINT":
-        return unpack_varint(buf, off)
+        return _unpack_varint_bounded(buf, off, end)
     if nex_type == "FVEC3":
+        _require(buf, off, 12, end)
         return struct.unpack_from("<fff", buf, off), off + 12
     if nex_type in ("VARSTR", "BINBUFF"):
+        _require(buf, off, 2, end)
         n = struct.unpack_from("<H", buf, off)[0]
         off += 2
+        _require(buf, off, n, end)
         return bytes(buf[off:off + n]), off + n
-    if nex_type == "ARRAY":
-        n = struct.unpack_from("<H", buf, off)[0]
+    if nex_type in ("ARRAY", "OPTIONAL"):
+        _require(buf, off, 2, end)
+        length = struct.unpack_from("<H", buf, off)[0]
         off += 2
-        end = off + n
+        _require(buf, off, length, end)
+        sub_end = off + length
         sub = extra[0]
+        if nex_type == "OPTIONAL":
+            return unpack_fields(sub, buf, off, sub_end, depth + 1), sub_end
         items = []
-        while off < end:
+        while off < sub_end:
+            if len(items) >= MAX_COLLECTION_ITEMS:
+                raise ValueError("Network collection item limit exceeded")
+            previous = off
             if isinstance(sub, tuple):
-                sl = struct.unpack_from("<H", buf, off)[0]
+                _require(buf, off, 2, sub_end)
+                item_len = struct.unpack_from("<H", buf, off)[0]
                 off += 2
-                items.append(unpack_fields(sub, buf, off, off + sl))
-                off += sl
+                _require(buf, off, item_len, sub_end)
+                items.append(unpack_fields(sub, buf, off, off + item_len, depth + 1))
+                off += item_len
             else:
-                v, off = unpack_value(sub, (), buf, off)
-                items.append(v)
-        return items, end
-    if nex_type == "OPTIONAL":
-        n = struct.unpack_from("<H", buf, off)[0]
-        off += 2
-        return unpack_fields(extra[0], buf, off, off + n), off + n
+                value, off = unpack_value(sub, (), buf, off, sub_end, depth + 1)
+                items.append(value)
+            if off <= previous:
+                raise ValueError("Non-advancing network array decoder")
+        if off != sub_end:
+            raise ValueError("Network collection length mismatch")
+        return items, sub_end
     raise ValueError("unknown type %s" % nex_type)
 
-
-def unpack_fields(desc, buf, off, end):
+def unpack_fields(desc, buf, off, end, depth=0):
+    if depth > MAX_NESTING:
+        raise ValueError("Network nesting limit exceeded")
+    _require(buf, off, 0, end)
     by_tag = {gen_tag(d[0], d[1]): d for d in desc}
     out = {}
     while off < end:
-        tag, off = unpack_tag(buf, off)
+        _require(buf, off, 1, end)
+        tag, newoff = unpack_tag(buf, off)
+        _require(buf, off, newoff - off, end)
+        off = newoff
         d = by_tag.get(tag)
         if d is None:
-            off += skip_len(tag, buf, off)
+            _require(buf, off, 1, end)
+            size = skip_len(tag, buf, off)
+            _require(buf, off, size, end)
+            off += size
             continue
-        out[d[2]], off = unpack_value(d[1], d[3:], buf, off)
+        out[d[2]], off = unpack_value(d[1], d[3:], buf, off, end, depth)
+    if off != end:
+        raise ValueError("Network field length mismatch")
     return out
 
 
