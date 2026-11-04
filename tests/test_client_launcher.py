@@ -1,5 +1,8 @@
 """Client launcher configuration and DNS bridge unit tests."""
 import json
+import io
+from email.message import Message
+from urllib.error import HTTPError
 import sys
 import tempfile
 import unittest
@@ -7,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reborn" / "tools"))
-from steam_bridge import validate_game_host
+from steam_bridge import validate_game_host, format_account_http_error
 from steam_launcher import load_config
 
 
@@ -21,6 +24,20 @@ class LauncherConfigTests(unittest.TestCase):
                     "bad..example.com", "a@b.com", ""):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 validate_game_host(bad)
+
+    def test_403_diagnostic_does_not_confuse_proxy_with_waf(self):
+        headers = Message()
+        headers["Server"] = "cloudflare"
+        headers["Content-Type"] = "application/json"
+        headers["CF-Ray"] = "a1b2c3d4-LHR"
+        err = HTTPError("https://example.invalid/v1/login", 403,
+                        "Forbidden", headers,
+                        io.BytesIO(b'{"error":"forbidden","token":"SECRET"}'))
+        message = format_account_http_error(err)
+        self.assertIn("API error=forbidden", message)
+        self.assertIn("a1b2c3d4-LHR", message)
+        self.assertNotIn("SECRET", message)
+        self.assertNotIn("WAF", message)
 
     def test_valid_cloudflare_config(self):
         config = {
