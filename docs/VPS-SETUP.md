@@ -15,11 +15,11 @@ No public port forwarding or exposure.
 ```sh
 git clone https://github.com/NekoSune-GameServers-MP-Mods/creative-destruction-reborn.git
 cd creative-destruction-reborn
-git checkout feat/server-hardening-i18n-hosting-foundation-20261104
 cp .env.vps.example .env
 # Edit .env and use YOUR VPN IPv4 and random staff token.
 python3 scripts/validate_vps_env.py .env
-docker compose -f compose.vps.yaml up --build -d
+docker compose -f compose.vps.yaml pull
+docker compose -f compose.vps.yaml up -d
 docker compose -f compose.vps.yaml ps
 docker compose -f compose.vps.yaml logs --tail=80
 ```
@@ -58,3 +58,18 @@ Only the known `Documents/nonpatch_user_data.dat` HTTP discovery URL is modified
 The new account service is available **only** on VPS localhost port **8090**. Forward it with `ssh -L 8090:127.0.0.1:8090 username@your-vps`. See [ACCOUNTS.md](ACCOUNTS.md) for registration, login, logout, tokens and limitations.
 
 **Important:** This backend persists independently authenticated accounts but is **not connected to the original game client yet**. Remote legacy game login is disabled until per-player/match state and authenticated handshake tickets are implemented. The loopback-only offline simulator still works as before.
+
+## GitHub Actions Docker images
+GitHub Actions publishes a multi-platform development server image to:
+`ghcr.io/nekosune-gameservers-mp-mods/creative-destruction-reborn:latest`
+
+On new commits to `main` that change server source, Dockerfile, or the workflow, GHCR receives a refreshed `latest` image. Git tags matching `v*` receive an identically named Docker image tag if the workflow's path filters match. A short Git SHA tag also identifies each published build. PR runs build without publishing; `workflow_dispatch` allows manually triggering a build.
+
+VPS updates after the image is published:
+```sh
+git pull --ff-only
+docker compose -f compose.vps.yaml pull
+docker compose -f compose.vps.yaml up -d```
+All three services use the same prebuilt image with different commands and retained storage. The container is a development simulator; remote gameplay is still deliberately blocked by default.
+
+If GHCR reports `unauthorized` / `denied`, the organization may need to allow Actions package publishing, or the container package may require public visibility / a read-only registry login on the VPS. Do not put GitHub tokens in your compose file or Git.
