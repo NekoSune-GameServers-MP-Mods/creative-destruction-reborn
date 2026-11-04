@@ -40,6 +40,11 @@ jobs:
         run: docker compose config --quiet
       - name: Build server development image
         run: docker build --pull -t cdr-dev:test .
+      - name: Verify independent service image targets
+        run: |
+          for service in game-server account-api staff cluster-api cluster-agent; do
+            docker build --target "$service" --tag "cdr-$service:test" .
+          done
       - name: Validate VPS Compose with safe example values
         env:
           CDR_VPN_IP: 100.101.22.33
