@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reborn" / "tools"))
 from steam_bridge import validate_game_host, format_account_http_error
 from steam_launcher import load_config
+from steam_gui import friendly_error
 
 
 class LauncherConfigTests(unittest.TestCase):
@@ -38,6 +39,21 @@ class LauncherConfigTests(unittest.TestCase):
         self.assertIn("a1b2c3d4-LHR", message)
         self.assertNotIn("SECRET", message)
         self.assertNotIn("WAF", message)
+
+    def test_friendly_auth_errors_hide_raw_diagnostics(self):
+        cases = (
+            ("Account API HTTP 403; Content-Type=text/plain; CF-Ray=a555-MAN", "refused access"),
+            ("Account API HTTP 401; API error=invalid_credentials", "Username or password"),
+            ("Account API HTTP 429; API error=rate_limited", "Too many attempts"),
+            ("Account API HTTP 403; API error=registration_requires_invitation", "invitation"),
+        )
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                safe = friendly_error(raw, "register" if "invitation" in raw else "login")
+                self.assertIn(expected.lower(), safe.lower())
+                self.assertNotIn("HTTP", safe)
+                self.assertNotIn("CF-Ray", safe)
+                self.assertNotIn("a555", safe)
 
     def test_valid_cloudflare_config(self):
         config = {
