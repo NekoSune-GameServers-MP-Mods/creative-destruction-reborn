@@ -27,11 +27,36 @@ from steam_launcher import load_config  # noqa: E402
 from patch_server import patch  # noqa: E402
 
 CONFIG = GAME_ROOT / "reborn" / "client-config.json"
-BG = "#11151e"
-PANEL = "#1c2330"
+BG = "#0b1019"
+PANEL = "#151e2b"
 TEXT = "#e9eef8"
 MUTED = "#a7b4c8"
-ACCENT = "#5d9eff"
+ACCENT = "#39d5aa"
+
+
+def friendly_error(detail, action="login"):
+    """Turn account failures into safe, player-facing guidance."""
+    value = str(detail).lower()
+    if "invalid_credentials" in value or "http 401" in value:
+        return "Username or password not recognised. Check your details or create an account."
+    if "registration_requires_invitation" in value:
+        return "You need an invitation from the Reborn server administrator."
+    if "invitation invalid" in value:
+        return "Your invitation is invalid or expired. Ask for a new one."
+    if "username unavailable" in value:
+        return "That username is already taken. Choose another."
+    if "http 429" in value or "rate_limited" in value:
+        return "Too many attempts. Please try again later."
+    if "http 403" in value or "forbidden" in value:
+        return "The account service refused access. Check the connection in Settings."
+    if "timed out" in value or "urlerror" in value:
+        return "Could not connect to the account service. Check your connection."
+    if "put the gui launcher" in value:
+        return "Game files missing. Install the launcher beside client.exe and script.npk."
+    if "account api" in value or "ssl" in value:
+        return "The account service is unavailable or its secure connection failed."
+    return ("Could not create your account. Check your details and try again."
+            if action == "register" else "Could not sign in. Check Settings and try again.")
 
 
 def diagnose_auth(url):
@@ -85,8 +110,8 @@ class RebornLauncher:
     def __init__(self, root):
         self.root = root
         root.title("Creative Destruction Reborn — Launcher")
-        root.geometry("790x610")
-        root.minsize(680, 540)
+        root.geometry("980x700")
+        root.minsize(780, 610)
         root.configure(bg=BG)
         self.events = queue.Queue()
         self.busy = False
@@ -122,16 +147,23 @@ class RebornLauncher:
         style.configure("Panel.TLabel", background=PANEL, foreground=TEXT, font=("Segoe UI", 10))
         style.configure("Sub.TLabel", background=BG, foreground=MUTED, font=("Segoe UI", 9))
         style.configure("TNotebook", background=BG, borderwidth=0)
+        style.configure("TNotebook.Tab", background=PANEL, foreground=MUTED, padding=(20, 13))
+        style.map("TNotebook.Tab", background=[("selected", "#233347")], foreground=[("selected", TEXT)])
         style.configure("TNotebook.Tab", padding=(18, 10), font=("Segoe UI", 10))
         style.configure("TButton", font=("Segoe UI", 10), padding=(12, 9))
-        style.configure("Accent.TButton", background=ACCENT, foreground="#07101e")
-        style.map("Accent.TButton", background=[("active", "#83b8ff")])
+        style.configure("Accent.TButton", background=ACCENT, foreground="#071a16", font=("Segoe UI", 11, "bold"), padding=(24, 13), borderwidth=0)
+        style.map("Accent.TButton", background=[("active", "#70edca")])
         style.configure("TEntry", padding=7, font=("Segoe UI", 10))
 
-        ttk.Label(root, text="CREATIVE DESTRUCTION", font=("Segoe UI", 23, "bold")
-                  ).pack(anchor="w", padx=28, pady=(22, 0))
-        ttk.Label(root, text="REBORN  /  Community Server", style="Sub.TLabel"
-                  ).pack(anchor="w", padx=29, pady=(0, 14))
+        header = tk.Frame(root, bg=BG, padx=32, pady=22)
+        header.pack(fill="x")
+        tk.Label(header, text="CD  /  REBORN", bg=BG, fg=ACCENT,
+                 font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        tk.Label(header, text="Creative Destruction", bg=BG, fg=TEXT,
+                 font=("Segoe UI", 27, "bold")).pack(anchor="w", pady=(3, 2))
+        tk.Label(header, text="Private multiplayer  •  Your adventure starts here",
+                 bg=BG, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w")
+        tk.Frame(root, bg="#293447", height=1).pack(fill="x", padx=30, pady=(0, 18))
 
         self.tabs = ttk.Notebook(root)
         self.tabs.pack(fill="both", expand=True, padx=24, pady=(0, 12))
@@ -150,7 +182,7 @@ class RebornLauncher:
         status_line.pack(anchor="w", padx=27, pady=(10, 18))
         self.root.after(100, self.flush_events)
         if self.config_error:
-            self.status.set("Config invalid: " + self.config_error)
+            self.status.set("Server settings need attention. Open Settings to review them.")
 
     def field(self, parent, label, var, secret=False):
         ttk.Label(parent, text=label).pack(anchor="w", pady=(13, 4))
@@ -161,9 +193,9 @@ class RebornLauncher:
     def build_play(self):
         p = ttk.Frame(self.play_tab, padding=(34, 20))
         p.pack(fill="both", expand=True)
-        ttk.Label(p, text="Welcome back", font=("Segoe UI", 17, "bold")
+        ttk.Label(p, text="Ready to drop in?", font=("Segoe UI", 21, "bold")
                   ).pack(anchor="w", pady=(0, 6))
-        ttk.Label(p, text="Use your Reborn account (not your GitHub password).",
+        ttk.Label(p, text="Sign in with your independent Reborn account.",
                   style="Sub.TLabel").pack(anchor="w")
         user_entry = self.field(p, "Reborn username", self.username)
         password_entry = self.field(p, "Password", self.password, secret=True)
@@ -171,18 +203,18 @@ class RebornLauncher:
         self.play_button = ttk.Button(p, text="SIGN IN & PLAY", style="Accent.TButton",
                                       command=self.on_play)
         self.play_button.pack(anchor="w", pady=(24, 15))
-        ttk.Label(p, text="The secure bridge starts automatically. No console commands.",
+        ttk.Label(p, text="Secure connection and game bridge start automatically.",
                   style="Sub.TLabel").pack(anchor="w")
-        ttk.Label(p, text="No account yet? Open Create Account and use an invite code.",
+        ttk.Label(p, text="New player? Create an account with a server invitation.",
                   style="Sub.TLabel").pack(anchor="w", pady=(10, 0))
         user_entry.focus_set()
 
     def build_registration(self):
         p = ttk.Frame(self.register_tab, padding=(34, 16))
         p.pack(fill="both", expand=True)
-        ttk.Label(p, text="Create your Reborn account", font=("Segoe UI", 16, "bold")
+        ttk.Label(p, text="Your next adventure starts here", font=("Segoe UI", 19, "bold")
                   ).pack(anchor="w")
-        ttk.Label(p, text="An invitation from the server operator is required.",
+        ttk.Label(p, text="Join the Reborn community with a one-time invitation.",
                   style="Sub.TLabel").pack(anchor="w", pady=(5, 0))
         self.field(p, "Username", self.reg_username)
         self.field(p, "Password (12–128 characters)", self.reg_password, secret=True)
@@ -277,7 +309,7 @@ class RebornLauncher:
             return (account, host, tls, game)
         def finished(ok, result):
             if not ok:
-                self.status.set("Login failed: " + result)
+                self.status.set(friendly_error(result, "login"))
                 return
             account, host_name, tls_name, game = result
             self.game_active = True
@@ -324,7 +356,7 @@ class RebornLauncher:
                 self.status.set("Account created. Enter your password to Play.")
                 messagebox.showinfo("Registration successful", "Account created: " + result)
             else:
-                self.status.set("Registration failed: " + result)
+                self.status.set(friendly_error(result, "register"))
         self.worker(lambda: signup(auth_url, username, password, invite), finished)
 
     def on_save(self):
@@ -356,7 +388,7 @@ class RebornLauncher:
             return (diagnose_auth(auth_url), diagnose_game(host, tls))
         def finished(ok, result):
             if not ok:
-                self.status.set("Network diagnostic failed: " + result)
+                self.status.set("Connection check failed. Review your network and server settings.")
                 return
             (api_msg, api_ok), (game_msg, game_ok) = result
             self.api_status.set(api_msg)
