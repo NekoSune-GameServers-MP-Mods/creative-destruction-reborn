@@ -55,7 +55,7 @@ def handler_factory(store):
             self.wfile.write(raw)
 
         def do_POST(self):
-            if self.path not in ("/v1/register", "/v1/login", "/v1/logout"):
+            if self.path not in ("/v1/register", "/v1/login", "/v1/logout", "/v1/game-ticket"):
                 return self.reply(404, {"error": "not_found"})
             if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
                 return self.reply(415, {"error": "json_required"})
@@ -74,6 +74,14 @@ def handler_factory(store):
                     return self.reply(401, {"error": "unauthorized"})
                 store.revoke(token)
                 return self.reply(200, {"ok": True})
+            if self.path == "/v1/game-ticket":
+                if not allow_attempt(("game-ticket", self.client_address[0])):
+                    return self.reply(429, {"error": "rate_limited"})
+                try:
+                    issued = store.issue_game_login_ticket(bearer(self.headers))
+                except AuthError:
+                    return self.reply(401, {"error": "unauthorized"})
+                return self.reply(200, issued)
             if self.path == "/v1/register":
                 if not allow_attempt(("register", self.client_address[0])):
                     return self.reply(429, {"error": "rate_limited"})
