@@ -6,7 +6,7 @@ WORKDIR /app/reborn/server
 USER cdr
 
 FROM base AS account-api
-COPY --chown=cdr:cdr reborn/server/accounts.py reborn/server/account_api.py ./
+COPY --chown=cdr:cdr reborn/server/accounts.py reborn/server/account_api.py reborn/server/player_profiles.py ./
 CMD ["python", "account_api.py"]
 
 FROM base AS staff
