@@ -1809,7 +1809,10 @@ class HttpHandler(http.server.BaseHTTPRequestHandler):
             return
         data = body.encode()
         self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store, max-age=0")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(data)
 
