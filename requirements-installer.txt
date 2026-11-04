@@ -1,0 +1,2 @@
+# Used by reborn/tools/install.py; install in an isolated Python environment.
+pycryptodome>=3.20,<4
