@@ -1,7 +1,24 @@
 # Local Docker development ONLY: localhost-published ports prevent public exposure.
 services:
+  volume-init:
+    build: .
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "chown -R 10001:10001 /app/reborn/server/logs /app/reborn/server/save"
+    restart: "no"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    volumes:
+      - cdr_logs:/app/reborn/server/logs
+      - cdr_save:/app/reborn/server/save
   creative-destruction-dev:
     build: .
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     init: true
     read_only: true
